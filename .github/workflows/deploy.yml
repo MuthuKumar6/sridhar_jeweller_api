@@ -1,4 +1,30 @@
-name: Deploy
+# name: Deploy
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: SSH Deploy
+#         uses: appleboy/ssh-action@v1.0.3
+
+#         with:
+#           host: moiaccount.in
+#           username: moiaccou
+#           key: ${{ secrets.SSH_KEY }}
+#           port: 22
+
+#           script: |
+#             whoami
+#             pwd
+
+
+name: Deploy Backend
 
 on:
   push:
@@ -14,11 +40,24 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
 
         with:
-          host: moiaccount.in
-          username: moiaccou
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           port: 22
 
           script: |
-            whoami
-            pwd
+            cd ~/sridhar_jeweller_api
+
+            echo "Before pull"
+            git status
+
+            git pull origin main
+
+            echo "After pull"
+            git log --oneline -5
+
+            npm install
+
+            npm run build
+
+            touch tmp/restart.txt
