@@ -53,5 +53,5 @@ const startServer = async () => {
 startServer();
 
 app.listen(PORT, () => {
-  console.log(`🚀 Jewel ERP Backend running on http://localhost:${PORT}`);
+  console.log(`🚀 Sridhar Jewellers ERP Backend running on http://localhost:${PORT}`);
 });
