@@ -37,21 +37,6 @@ app.use("/", (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-// const startServer = async () => {
-
-//   const dbConnected = await checkDBConnection();
-
-//   console.log('Database connection status:', dbConnected );
-
-//   if (!dbConnected) {
-//     console.log('❌ Server stopped due to database issue');
-//     process.exit(1);
-//   }
-
-//   app.listen(PORT, () => {
-//     console.log(`🚀 Server running on http://localhost:${PORT}`);
-//   });
-// };
 
 const startServer = async () => {
   const dbConnected = await checkDBConnection();
