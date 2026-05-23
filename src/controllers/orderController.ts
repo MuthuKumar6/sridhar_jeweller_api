@@ -1,130 +1,848 @@
+// import { Request, Response } from 'express';
+// import { query, execute } from '../utils/db';
+// import { genId, genOrderNumber } from '../utils/generateId';
+
+// export const orderController = {
+//   getAll: async (req: Request, res: Response) => {
+//     const shopId = (req as any).shopId;
+
+//     const orders = await query(
+//       'SELECT * FROM orders WHERE shop_id = ? ORDER BY created_at DESC',
+//       [shopId]
+//     ) as any[];
+
+//     // Fetch items for each order
+//     const ordersWithItems = await Promise.all(
+//       orders.map(async (order) => {
+//         const items = await query(
+//           'SELECT * FROM order_items WHERE order_id = ?',
+//           [order.id]
+//         ) as any[];
+
+//         return {
+//           ...order,
+//           items: items.map(item => ({
+//             ...item,
+//             huids: JSON.parse(item.huids || '[]'),  // parse back from JSON string
+//           })),
+//         };
+//       })
+//     );
+
+//     res.json({ ok: true, data: ordersWithItems });
+//   },
+
+//   create: async (req: Request, res: Response) => {
+//     const shopId = (req as any).shopId;
+//     const { customerId, items, notes = '', paymentDueDate } = req.body;
+
+//     // Generate Order Number
+//     const countRes = await query('SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?', [shopId]);
+//     const orderNumber = genOrderNumber((countRes as any)[0].cnt);
+
+//     const orderId = genId();
+//     let totalWeight = 0;
+//     let subtotal = 0;
+//     let gstAmount = 0;
+
+//     // Create Order
+//     await execute(
+//       `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
+//        VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+//       [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
+//     );
+
+//     // Process Items
+//     for (const item of items) {
+//       const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
+//       subtotal += amount;
+//       totalWeight += item.weightGrams;
+
+//       await execute(
+//         `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
+//           weight_grams, rate_per_gram, making_charges, amount)
+//          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+//         [
+//           genId(), orderId, item.productTypeId, item.quantity,
+//           JSON.stringify(item.huids || []), item.weightGrams,
+//           item.ratePerGram, item.makingCharges, amount
+//         ]
+//       );
+
+//       // Deduct Stock
+//       await execute(
+//         'UPDATE product_types SET in_stock = in_stock - ? WHERE id = ? AND shop_id = ?',
+//         [item.quantity, item.productTypeId, shopId]
+//       );
+//     }
+
+//     gstAmount = subtotal * 0.03; // 3% GST
+//     const totalAmount = subtotal + gstAmount;
+
+//     // Update Order Totals
+//     await execute(
+//       `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
+//        WHERE id = ?`,
+//       [totalWeight, subtotal, gstAmount, totalAmount, orderId]
+//     );
+
+//     res.status(201).json({
+//       ok: true,
+//       orderId,
+//       orderNumber,
+//       totalAmount
+//     });
+//   },
+
+//   updateStatus: async (req: Request, res: Response) => {
+//     const { id } = req.params;
+//     const { status } = req.body;
+//     const shopId = (req as any).shopId;
+
+//     console.log('Updating order status:', { id, status, shopId });
+
+//     const [order] = await query('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [id, shopId]);
+
+//     if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
+
+//     await execute('UPDATE orders SET status = ? WHERE id = ? AND shop_id = ?', [status, id, shopId]);
+
+//     // If cancelled, return stock
+//     if (status === 'cancelled') {
+//       const items = await query('SELECT * FROM order_items WHERE order_id = ?', [id]);
+//       for (const item of items as any[]) {
+//         await execute(
+//           'UPDATE product_types SET in_stock = in_stock + ? WHERE id = ? AND shop_id = ?',
+//           [item.quantity, item.product_type_id, shopId]
+//         );
+//       }
+//     }
+
+//     res.json({ ok: true, message: 'Order status updated' });
+//   },
+
+//   delete: async (req: Request, res: Response) => {
+//     const { id } = req.params;
+//     const shopId = (req as any).shopId;
+//     await execute('DELETE FROM orders WHERE id = ? AND shop_id = ?', [id, shopId]);
+//     res.json({ ok: true });
+//   }
+// };
+
+
 import { Request, Response } from 'express';
 import { query, execute } from '../utils/db';
 import { genId, genOrderNumber } from '../utils/generateId';
+import pool from '../config/db';
 
 export const orderController = {
+  // getAll: async (req: Request, res: Response) => {
+  //   const shopId = (req as any).shopId;
+
+  //   const orders = await query(
+  //     'SELECT * FROM orders WHERE shop_id = ? ORDER BY created_at DESC',
+  //     [shopId]
+  //   ) as any[];
+
+  //   const ordersWithItems = await Promise.all(
+  //     orders.map(async (order) => {
+  //       const items = await query(
+  //         'SELECT * FROM order_items WHERE order_id = ?',
+  //         [order.id]
+  //       ) as any[];
+
+  //       return {
+  //         ...order,
+  //         items: items.map(item => ({
+  //           ...item,
+  //           huids: JSON.parse(item.huids || '[]'),
+  //         })),
+  //       };
+  //     })
+  //   );
+
+  //   res.json({ ok: true, data: ordersWithItems });
+  // },
+
+  // create: async (req: Request, res: Response) => {
+  //   const shopId = (req as any).shopId;
+  //   const { customerId, items, notes = '', paymentDueDate } = req.body;
+
+  //   const connection = await pool.getConnection(); // ← Need to import pool
+
+  //   try {
+  //     await connection.beginTransaction();
+
+  //     // Generate Order Number
+  //     const countRes = await connection.execute(
+  //       'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?',
+  //       [shopId]
+  //     );
+  //     const orderNumber = genOrderNumber((countRes as any)[0].cnt);
+
+  //     const orderId = genId();
+  //     let totalWeight = 0;
+  //     let subtotal = 0;
+
+  //     // Create Order
+  //     await connection.execute(
+  //       `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
+  //        VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+  //       [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
+  //     );
+
+  //     // Process Items
+  //     for (const item of items) {
+  //       const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
+  //       subtotal += amount;
+  //       totalWeight += item.weightGrams;
+
+  //       await connection.execute(
+  //         `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
+  //           weight_grams, rate_per_gram, making_charges, amount)
+  //          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  //         [
+  //           genId(), orderId, item.productTypeId, item.quantity,
+  //           JSON.stringify(item.huids || []), item.weightGrams,
+  //           item.ratePerGram, item.makingCharges, amount
+  //         ]
+  //       );
+
+  //       // Deduct Stock
+  //       await connection.execute(
+  //         'UPDATE product_types SET in_stock = in_stock - ? WHERE id = ? AND shop_id = ?',
+  //         [item.quantity, item.productTypeId, shopId]
+  //       );
+  //     }
+
+  //     const gstAmount = subtotal * 0.03; // 3% GST
+  //     const totalAmount = subtotal + gstAmount;
+
+  //     // Update Order Totals
+  //     await connection.execute(
+  //       `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
+  //        WHERE id = ?`,
+  //       [totalWeight, subtotal, gstAmount, totalAmount, orderId]
+  //     );
+
+  //     await connection.commit();
+
+  //     res.status(201).json({
+  //       ok: true,
+  //       orderId,
+  //       orderNumber,
+  //       totalAmount
+  //     });
+  //   } catch (err) {
+  //     await connection.rollback();
+  //     console.error('Order creation failed:', err);
+  //     res.status(500).json({ ok: false, error: 'Order creation failed' });
+  //   } finally {
+  //     connection.release();
+  //   }
+  // },
+
   getAll: async (req: Request, res: Response) => {
     const shopId = (req as any).shopId;
 
-    const orders = await query(
-      'SELECT * FROM orders WHERE shop_id = ? ORDER BY created_at DESC',
+    const rows = await query(
+      `SELECT 
+      o.*,
+      oi.id AS item_id,
+      oi.product_type_id,
+      oi.quantity,
+      oi.huids,
+      oi.weight_grams,
+      oi.rate_per_gram,
+      oi.making_charges,
+      oi.amount
+     FROM orders o
+     LEFT JOIN order_items oi ON o.id = oi.order_id
+     WHERE o.shop_id = ?
+     ORDER BY o.created_at DESC, o.id, oi.id ASC`,
       [shopId]
     ) as any[];
 
-    // Fetch items for each order
-    const ordersWithItems = await Promise.all(
-      orders.map(async (order) => {
-        const items = await query(
-          'SELECT * FROM order_items WHERE order_id = ?',
-          [order.id]
-        ) as any[];
+    // Group items by order in JavaScript
+    const orderMap = new Map<string, any>();
 
-        return {
-          ...order,
-          items: items.map(item => ({
-            ...item,
-            huids: JSON.parse(item.huids || '[]'),  // parse back from JSON string
-          })),
-        };
-      })
-    );
+    for (const row of rows) {
+      const orderId = row.id;
+
+      if (!orderMap.has(orderId)) {
+        const { item_id, product_type_id, quantity, huids, weight_grams,
+          rate_per_gram, making_charges, amount, ...orderData } = row;
+
+        orderMap.set(orderId, {
+          ...orderData,
+          items: []
+        });
+      }
+
+      // Add item if it exists (LEFT JOIN can return nulls)
+      if (row.item_id) {
+        const order = orderMap.get(orderId);
+        order.items.push({
+          id: row.item_id,
+          product_type_id: row.product_type_id,
+          quantity: row.quantity,
+          huids: JSON.parse(row.huids || '[]'),
+          weight_grams: row.weight_grams,
+          rate_per_gram: row.rate_per_gram,
+          making_charges: row.making_charges,
+          amount: row.amount,
+        });
+      }
+    }
+
+    const ordersWithItems = Array.from(orderMap.values());
 
     res.json({ ok: true, data: ordersWithItems });
   },
+
+
+  // create: async (req: Request, res: Response) => {
+  //   const shopId = (req as any).shopId;
+  //   const { customerId, items, notes = '', paymentDueDate } = req.body;
+
+  //   const connection = await pool.getConnection();
+
+  //   try {
+  //     await connection.beginTransaction();
+
+  //     // Generate Order Number
+  //     const [countRes] = await connection.execute(
+  //       'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?',
+  //       [shopId]
+  //     );
+  //     const orderNumber = genOrderNumber((countRes as any).cnt);
+
+  //     const orderId = genId();
+  //     let totalWeight = 0;
+  //     let subtotal = 0;
+
+  //     // Create Order first
+  //     await connection.execute(
+  //       `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
+  //        VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+  //       [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
+  //     );
+
+  //     // Process Items with Stock Guard
+  //     for (const item of items) {
+  //       const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
+  //       subtotal += amount;
+  //       totalWeight += item.weightGrams;
+
+  //       // 1. Insert order item
+  //       await connection.execute(
+  //         `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
+  //           weight_grams, rate_per_gram, making_charges, amount)
+  //          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  //         [
+  //           genId(), orderId, item.productTypeId, item.quantity,
+  //           JSON.stringify(item.huids || []), item.weightGrams,
+  //           item.ratePerGram, item.makingCharges, amount
+  //         ]
+  //       );
+
+  //       // 2. Atomic Stock Deduction with Guard
+  //       const [result] = await connection.execute(
+  //         `UPDATE product_types 
+  //          SET in_stock = in_stock - ? 
+  //          WHERE id = ? AND shop_id = ? AND in_stock >= ?`,
+  //         [item.quantity, item.productTypeId, shopId, item.quantity]
+  //       ) as any[];
+
+  //       if (result.affectedRows === 0) {
+  //         throw new Error(`Insufficient stock for product type: ${item.productTypeId}`);
+  //       }
+  //     }
+
+  //     const gstAmount = subtotal * 0.03;
+  //     const totalAmount = subtotal + gstAmount;
+
+  //     // Update Order Totals
+  //     await connection.execute(
+  //       `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
+  //        WHERE id = ?`,
+  //       [totalWeight, subtotal, gstAmount, totalAmount, orderId]
+  //     );
+
+  //     await connection.commit();
+
+  //     res.status(201).json({
+  //       ok: true,
+  //       orderId,
+  //       orderNumber,
+  //       totalAmount
+  //     });
+  //   } catch (err: any) {
+  //     await connection.rollback();
+  //     console.error('Order creation failed:', err);
+
+  //     const errorMessage = err.message.includes('Insufficient stock')
+  //       ? err.message
+  //       : 'Order creation failed';
+
+  //     res.status(400).json({
+  //       ok: false,
+  //       error: errorMessage
+  //     });
+  //   } finally {
+  //     connection.release();
+  //   }
+  // },
+
+
+  // updateStatus: async (req: Request, res: Response) => {
+  //   const { id } = req.params;
+  //   const { status } = req.body;
+  //   const shopId = (req as any).shopId;
+
+  //   const connection = await pool.getConnection();
+
+  //   try {
+  //     await connection.beginTransaction();
+
+  //     const [order] = await connection.execute(
+  //       'SELECT * FROM orders WHERE id = ? AND shop_id = ?',
+  //       [id, shopId]
+  //     ) as any[];
+
+  //     if (!order) {
+  //       await connection.rollback();
+  //       return res.status(404).json({ ok: false, error: 'Order not found' });
+  //     }
+
+  //     await connection.execute(
+  //       'UPDATE orders SET status = ? WHERE id = ? AND shop_id = ?',
+  //       [status, id, shopId]
+  //     );
+
+  //     // If cancelled, return stock
+  //     if (status === 'cancelled') {
+  //       const items = await connection.execute(
+  //         'SELECT * FROM order_items WHERE order_id = ?',
+  //         [id]
+  //       ) as any[];
+
+  //       for (const item of items) {
+  //         await connection.execute(
+  //           'UPDATE product_types SET in_stock = in_stock + ? WHERE id = ? AND shop_id = ?',
+  //           [item.quantity, item.product_type_id, shopId]
+  //         );
+  //       }
+  //     }
+
+  //     await connection.commit();
+  //     res.json({ ok: true, message: 'Order status updated' });
+  //   } catch (err) {
+  //     await connection.rollback();
+  //     console.error('Order status update failed:', err);
+  //     res.status(500).json({ ok: false, error: 'Failed to update order status' });
+  //   } finally {
+  //     connection.release();
+  //   }
+  // },
 
   create: async (req: Request, res: Response) => {
     const shopId = (req as any).shopId;
     const { customerId, items, notes = '', paymentDueDate } = req.body;
 
-    // Generate Order Number
-    const countRes = await query('SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?', [shopId]);
-    const orderNumber = genOrderNumber((countRes as any)[0].cnt);
+    // ==================== VALIDATIONS ====================
 
-    const orderId = genId();
-    let totalWeight = 0;
-    let subtotal = 0;
-    let gstAmount = 0;
-
-    // Create Order
-    await execute(
-      `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-      [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
-    );
-
-    // Process Items
-    for (const item of items) {
-      const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
-      subtotal += amount;
-      totalWeight += item.weightGrams;
-
-      await execute(
-        `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
-          weight_grams, rate_per_gram, making_charges, amount)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          genId(), orderId, item.productTypeId, item.quantity,
-          JSON.stringify(item.huids || []), item.weightGrams,
-          item.ratePerGram, item.makingCharges, amount
-        ]
-      );
-
-      // Deduct Stock
-      await execute(
-        'UPDATE product_types SET in_stock = in_stock - ? WHERE id = ? AND shop_id = ?',
-        [item.quantity, item.productTypeId, shopId]
-      );
+    // 1. Customer ID validation
+    if (!customerId || typeof customerId !== 'string' || customerId.trim() === '') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Valid customerId is required'
+      });
     }
 
-    gstAmount = subtotal * 0.03; // 3% GST
-    const totalAmount = subtotal + gstAmount;
+    // 2. Items validation
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'At least one item is required'
+      });
+    }
 
-    // Update Order Totals
-    await execute(
-      `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
+    // 3. Validate each item
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+
+      if (!item || typeof item !== 'object') {
+        return res.status(400).json({
+          ok: false,
+          error: `Invalid item at index ${i}`
+        });
+      }
+
+      // productTypeId
+      if (!item.productTypeId || typeof item.productTypeId !== 'string') {
+        return res.status(400).json({
+          ok: false,
+          error: `productTypeId is required and must be string at item ${i}`
+        });
+      }
+
+      // quantity
+      if (typeof item.quantity !== 'number' || item.quantity <= 0) {
+        return res.status(400).json({
+          ok: false,
+          error: `quantity must be positive number at item ${i}`
+        });
+      }
+
+      // weightGrams
+      if (typeof item.weightGrams !== 'number' || item.weightGrams <= 0) {
+        return res.status(400).json({
+          ok: false,
+          error: `weightGrams must be positive number at item ${i}`
+        });
+      }
+
+      // ratePerGram
+      if (item.ratePerGram <= 0) {
+        return res.status(400).json({
+          ok: false,
+          error: `ratePerGram must be positive number at item ${i}`
+        });
+      }
+
+      // makingCharges
+      if (typeof item.makingCharges !== 'number' || item.makingCharges < 0) {
+        return res.status(400).json({
+          ok: false,
+          error: `makingCharges cannot be negative at item ${i}`
+        });
+      }
+
+      // Optional: huids
+      if (item.huids !== undefined && !Array.isArray(item.huids)) {
+        return res.status(400).json({
+          ok: false,
+          error: `huids must be an array at item ${i}`
+        });
+      }
+    }
+
+    // 4. paymentDueDate validation
+    let parsedDueDate: Date | null = null;
+    if (paymentDueDate) {
+      parsedDueDate = new Date(paymentDueDate);
+      if (isNaN(parsedDueDate.getTime())) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid paymentDueDate format'
+        });
+      }
+      if (parsedDueDate < new Date()) {
+        return res.status(400).json({
+          ok: false,
+          error: 'paymentDueDate cannot be in the past'
+        });
+      }
+    }
+
+    // ==================== BUSINESS LOGIC ====================
+
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      // Verify customer belongs to this shop
+      const [customerRows] = await connection.execute(
+        'SELECT id FROM customers WHERE id = ? AND shop_id = ?',
+        [customerId, shopId]
+      ) as any[];
+
+      if (customerRows.length === 0) {
+        await connection.rollback();
+        return res.status(400).json({
+          ok: false,
+          error: 'Customer not found or does not belong to this shop'
+        });
+      }
+
+      // Generate Order Number
+      const [countRes] = await connection.execute(
+        'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?',
+        [shopId]
+      );
+
+      const orderNumber = genOrderNumber((countRes as any)[0].cnt);
+      const orderId = genId();
+
+      let totalWeight = 0;
+      let subtotal = 0;
+
+      // Create Order
+      await connection.execute(
+        `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+        [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
+      );
+
+      // Process Items
+      for (const item of items) {
+        console.log('Processing item:', item);
+        const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
+        subtotal += amount;
+        totalWeight += item.weightGrams;
+
+        // Insert order item
+        await connection.execute(
+          `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
+          weight_grams, rate_per_gram, making_charges, amount)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            genId(), orderId, item.productTypeId, item.quantity,
+            JSON.stringify(item.huids || []), item.weightGrams,
+            item.ratePerGram, item.makingCharges, amount
+          ]
+        );
+
+        // Atomic Stock Deduction
+        const [result] = await connection.execute(
+          `UPDATE product_types 
+         SET in_stock = in_stock - ? 
+         WHERE id = ? AND shop_id = ? AND in_stock >= ?`,
+          [item.quantity, item.productTypeId, shopId, item.quantity]
+        ) as any[];
+
+        if (result.affectedRows === 0) {
+          throw new Error(`Insufficient stock for product type: ${item.productTypeId}`);
+        }
+      }
+
+      const gstAmount = subtotal * 0.03;
+      const totalAmount = subtotal + gstAmount;
+
+      // Update Order Totals
+      await connection.execute(
+        `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
        WHERE id = ?`,
-      [totalWeight, subtotal, gstAmount, totalAmount, orderId]
-    );
+        [totalWeight, subtotal, gstAmount, totalAmount, orderId]
+      );
 
-    res.status(201).json({
-      ok: true,
-      orderId,
-      orderNumber,
-      totalAmount
-    });
+      await connection.commit();
+
+      res.status(201).json({
+        ok: true,
+        orderId,
+        orderNumber,
+        totalAmount
+      });
+
+    } catch (err: any) {
+      await connection.rollback();
+      console.error('Order creation failed:', err);
+
+      const errorMessage = err.message.includes('Insufficient stock')
+        ? err.message
+        : 'Order creation failed';
+
+      res.status(400).json({
+        ok: false,
+        error: errorMessage
+      });
+    } finally {
+      connection.release();
+    }
   },
+
 
   updateStatus: async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status } = req.body;
     const shopId = (req as any).shopId;
 
-    console.log('Updating order status:', { id, status, shopId });
-
-    const [order] = await query('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [id, shopId]);
-
-    if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
-
-    await execute('UPDATE orders SET status = ? WHERE id = ? AND shop_id = ?', [status, id, shopId]);
-
-    // If cancelled, return stock
-    if (status === 'cancelled') {
-      const items = await query('SELECT * FROM order_items WHERE order_id = ?', [id]);
-      for (const item of items as any[]) {
-        await execute(
-          'UPDATE product_types SET in_stock = in_stock + ? WHERE id = ? AND shop_id = ?',
-          [item.quantity, item.product_type_id, shopId]
-        );
-      }
+    if (!['pending', 'approved', 'dispatched', 'delivered', 'cancelled'].includes(status)) {
+      return res.status(400).json({ ok: false, error: 'Invalid status' });
     }
 
-    res.json({ ok: true, message: 'Order status updated' });
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      // Fetch current order
+      const [orders] = await connection.execute(
+        'SELECT * FROM orders WHERE id = ? AND shop_id = ?',
+        [id, shopId]
+      ) as any[];
+
+      const order = orders[0];
+
+      if (!order) {
+        await connection.rollback();
+        return res.status(404).json({ ok: false, error: 'Order not found' });
+      }
+
+      // Prevent invalid transitions (optional but recommended)
+      if (order.status === 'delivered' && status === 'cancelled') {
+        await connection.rollback();
+        return res.status(400).json({
+          ok: false,
+          error: 'Cannot cancel a delivered order'
+        });
+      }
+
+      if (order.status === 'cancelled' && status === 'cancelled') {
+        await connection.rollback();
+        return res.status(400).json({
+          ok: false,
+          error: 'Order is already cancelled'
+        });
+      }
+
+      const stockHoldingStatuses = ['pending', 'approved', 'dispatched'];
+      const shouldReturnStock =
+        status === 'cancelled' &&
+        stockHoldingStatuses.includes(order.status);
+
+      // Update order status
+      await connection.execute(
+        `UPDATE orders 
+         SET status = ?, updated_at = NOW() 
+         WHERE id = ? AND shop_id = ?`,
+        [status, id, shopId]
+      );
+
+      // Return stock ONLY if transitioning from stock-holding status to cancelled
+      if (shouldReturnStock) {
+        const [items] = await connection.execute(
+          'SELECT * FROM order_items WHERE order_id = ?',
+          [id]
+        ) as any[];
+
+        for (const item of items) {
+          await connection.execute(
+            'UPDATE product_types SET in_stock = in_stock + ? WHERE id = ? AND shop_id = ?',
+            [item.quantity, item.product_type_id, shopId]
+          );
+        }
+      }
+
+      await connection.commit();
+
+      res.json({
+        ok: true,
+        message: 'Order status updated successfully',
+        previousStatus: order.status,
+        newStatus: status
+      });
+    } catch (err: any) {
+      await connection.rollback();
+      console.error('Order status update failed:', err);
+      res.status(500).json({ ok: false, error: 'Failed to update order status' });
+    } finally {
+      connection.release();
+    }
   },
+
+  update: async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { notes, paymentDueDate, status } = req.body;
+    const shopId = (req as any).shopId;
+
+    if (!notes && paymentDueDate === undefined && !status) {
+      return res.status(400).json({ ok: false, error: 'No fields to update' });
+    }
+
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      // Check if order exists
+      const [orders] = await connection.execute(
+        'SELECT * FROM orders WHERE id = ? AND shop_id = ?',
+        [id, shopId]
+      ) as any[];
+
+      if (orders.length === 0) {
+        await connection.rollback();
+        return res.status(404).json({ ok: false, error: 'Order not found' });
+      }
+
+      const currentOrder = orders[0];
+
+      // Build dynamic update query
+      const fields: string[] = [];
+      const values: any[] = [];
+
+      if (notes !== undefined) {
+        fields.push('notes = ?');
+        values.push(notes);
+      }
+      if (paymentDueDate !== undefined) {
+        fields.push('payment_due_date = ?');
+        values.push(paymentDueDate || null);
+      }
+      if (status !== undefined) {
+        fields.push('status = ?');
+        values.push(status);
+      }
+
+      fields.push('updated_at = NOW()');
+
+      await connection.execute(
+        `UPDATE orders 
+         SET ${fields.join(', ')} 
+         WHERE id = ? AND shop_id = ?`,
+        [...values, id, shopId]
+      );
+
+      // Handle stock return if status changed to cancelled
+      if (status === 'cancelled') {
+        const stockHoldingStatuses = ['pending', 'approved', 'dispatched'];
+        if (stockHoldingStatuses.includes(currentOrder.status)) {
+          const [items] = await connection.execute(
+            'SELECT * FROM order_items WHERE order_id = ?',
+            [id]
+          ) as any[];
+
+          for (const item of items) {
+            await connection.execute(
+              'UPDATE product_types SET in_stock = in_stock + ? WHERE id = ? AND shop_id = ?',
+              [item.quantity, item.product_type_id, shopId]
+            );
+          }
+        }
+      }
+
+      await connection.commit();
+
+      res.json({ ok: true, message: 'Order updated successfully' });
+    } catch (err: any) {
+      await connection.rollback();
+      console.error('Order update failed:', err);
+      res.status(500).json({ ok: false, error: 'Failed to update order' });
+    } finally {
+      connection.release();
+    }
+  },
+
 
   delete: async (req: Request, res: Response) => {
     const { id } = req.params;
     const shopId = (req as any).shopId;
-    await execute('DELETE FROM orders WHERE id = ? AND shop_id = ?', [id, shopId]);
-    res.json({ ok: true });
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('DELETE FROM orders WHERE id = ? AND shop_id = ?', [id, shopId]);
+      await connection.commit();
+      res.json({ ok: true });
+    } catch (err) {
+      await connection.rollback();
+      res.status(500).json({ ok: false, error: 'Failed to delete order' });
+    } finally {
+      connection.release();
+    }
   }
 };

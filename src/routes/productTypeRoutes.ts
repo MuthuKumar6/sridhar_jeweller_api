@@ -22,7 +22,7 @@ router.post('/', productTypeController.create);
 router.put('/:id', productTypeController.update);
 
 // Update stock (special endpoint)
-router.put('/:id/stock', productTypeController.updateStock);
+router.patch('/:id/stock', productTypeController.updateStock);
 
 // Delete product type
 router.delete('/:id', productTypeController.delete);

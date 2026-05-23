@@ -1,51 +1,276 @@
+// import { Request, Response } from 'express';
+// import { query, execute } from '../utils/db';
+// import { genId } from '../utils/generateId';
+
+// export const restrictionController = {
+//   getAll: async (req: Request, res: Response) => {
+//     const shopId = (req as any).shopId;
+//     const data = await query('SELECT * FROM restrictions WHERE shop_id = ?', [shopId]);
+//     res.json({ ok: true, data });
+//   },
+
+//   create: async (req: Request, res: Response) => {
+//     const shopId = (req as any).shopId;
+//     const id = genId();
+//     const { customerId, productId, dailyGramLimit, isActive = true } = req.body;
+
+//     await execute(
+//       `INSERT INTO restrictions (id, shop_id, customer_id, product_id, daily_gram_limit, is_active)
+//        VALUES (?, ?, ?, ?, ?, ?)`,
+//       [id, shopId, customerId, productId, dailyGramLimit, isActive]
+//     );
+
+//     res.status(201).json({ ok: true, id });
+//   },
+
+//   // checkLimit: async (req: Request, res: Response) => {
+//   //   // You can implement business logic here if needed
+//   //   res.json({ ok: true, message: "Limit check endpoint ready" });
+//   // },
+
+//   checkLimit: async (req: Request, res: Response) => {
+//     try {
+//       const { customerId, productId, grams } = req.query;
+//       const shopId = (req as any).shopId;
+
+//       const restrictions = await query(
+//         `SELECT * FROM restrictions 
+//        WHERE shop_id = ? AND customer_id = ? AND product_id = ? AND is_active = TRUE`,
+//         [shopId, customerId, productId]
+//       ) as any[];
+
+//       if (restrictions.length === 0) return res.json({ ok: true, allowed: true, limit: 0 });
+
+//       const restriction = restrictions[0];
+//       const today = new Date().toISOString().slice(0, 10);
+//       const usedRows = await query(
+//         `SELECT COALESCE(SUM(oi.weight_grams), 0) as used
+//        FROM orders o JOIN order_items oi ON o.id = oi.order_id
+//        JOIN product_types pt ON oi.product_type_id = pt.id
+//        WHERE o.shop_id = ? AND o.customer_id = ? AND pt.product_id = ?
+//        AND o.status NOT IN ('cancelled', 'returned')
+//        AND DATE(o.created_at) = ?`,
+//         [shopId, customerId, productId, today]
+//       ) as any[];
+
+//       const usedToday = Number(usedRows[0]?.used || 0);
+//       const requested = Number(grams);
+//       const allowed = (usedToday + requested) <= restriction.daily_gram_limit;
+
+//       res.json({ ok: true, allowed, limit: restriction.daily_gram_limit, usedToday });
+//     } catch (err) {
+//       res.status(500).json({ ok: false, error: 'Limit check failed' });
+//     }
+//   },
+
+//   delete: async (req: Request, res: Response) => {
+//     const { id } = req.params;
+//     const shopId = (req as any).shopId;
+//     await execute('DELETE FROM restrictions WHERE id = ? AND shop_id = ?', [id, shopId]);
+//     res.json({ ok: true, message: 'Restriction deleted' });
+//   },
+
+//   update: async (req: Request, res: Response) => {
+//     const { id } = req.params;
+//     const shopId = (req as any).shopId;
+//     console.log('Update restriction request body:', req.body);
+//     const { isActive } = req.body;
+//     await execute(
+//       `UPDATE restrictions SET is_active = ?
+//        WHERE id = ? AND shop_id = ?`,
+//       [isActive, id, shopId]
+//     );
+
+//     res.json({ ok: true, message: 'Restriction updated' });
+//   }
+// };
+
+
 import { Request, Response } from 'express';
-import { query, execute } from '../utils/db';
 import { genId } from '../utils/generateId';
+import pool from '../config/db';
 
 export const restrictionController = {
   getAll: async (req: Request, res: Response) => {
     const shopId = (req as any).shopId;
-    const data = await query('SELECT * FROM restrictions WHERE shop_id = ?', [shopId]);
-    res.json({ ok: true, data });
+
+    try {
+      const [data] = await pool.execute(
+        'SELECT * FROM restrictions WHERE shop_id = ? ORDER BY created_at DESC',
+        [shopId]
+      );
+
+      res.json({ ok: true, data });
+    } catch (error: any) {
+      console.error('Failed to fetch restrictions:', error);
+      res.status(500).json({ ok: false, error: 'Failed to fetch restrictions' });
+    }
   },
 
   create: async (req: Request, res: Response) => {
     const shopId = (req as any).shopId;
-    const id = genId();
     const { customerId, productId, dailyGramLimit, isActive = true } = req.body;
 
-    await execute(
-      `INSERT INTO restrictions (id, shop_id, customer_id, product_id, daily_gram_limit, is_active)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, shopId, customerId, productId, dailyGramLimit, isActive]
-    );
+    if (!customerId || !productId || dailyGramLimit === undefined) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'customerId, productId and dailyGramLimit are required' 
+      });
+    }
 
-    res.status(201).json({ ok: true, id });
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const id = genId();
+
+      // Prevent duplicate restriction for same customer + product
+      const [existing] = await connection.execute(
+        'SELECT id FROM restrictions WHERE shop_id = ? AND customer_id = ? AND product_id = ?',
+        [shopId, customerId, productId]
+      );
+
+      if ((existing as any[]).length > 0) {
+        await connection.rollback();
+        return res.status(409).json({ 
+          ok: false, 
+          error: 'Restriction already exists for this customer and product' 
+        });
+      }
+
+      await connection.execute(
+        `INSERT INTO restrictions (id, shop_id, customer_id, product_id, daily_gram_limit, is_active)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, shopId, customerId, productId, dailyGramLimit, isActive]
+      );
+
+      await connection.commit();
+
+      res.status(201).json({ ok: true, id });
+    } catch (error: any) {
+      await connection.rollback();
+      console.error('Restriction creation failed:', error);
+      res.status(500).json({ ok: false, error: 'Failed to create restriction' });
+    } finally {
+      connection.release();
+    }
   },
 
   checkLimit: async (req: Request, res: Response) => {
-    // You can implement business logic here if needed
-    res.json({ ok: true, message: "Limit check endpoint ready" });
-  },
+    try {
+      const { customerId, productId, grams } = req.query;
+      const shopId = (req as any).shopId;
 
-  delete: async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const shopId = (req as any).shopId;
-    await execute('DELETE FROM restrictions WHERE id = ? AND shop_id = ?', [id, shopId]);
-    res.json({ ok: true, message: 'Restriction deleted' });
+      if (!customerId || !productId || !grams) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: 'Missing required parameters: customerId, productId, grams' 
+        });
+      }
+
+      const [restrictions] = await pool.execute(
+        `SELECT * FROM restrictions 
+         WHERE shop_id = ? AND customer_id = ? AND product_id = ? AND is_active = TRUE`,
+        [shopId, customerId, productId]
+      ) as any[];
+
+      if (restrictions.length === 0) {
+        return res.json({ ok: true, allowed: true, limit: 0, usedToday: 0 });
+      }
+
+      const restriction = restrictions[0];
+      const today = new Date().toISOString().slice(0, 10);
+
+      const [usedRows] = await pool.execute(
+        `SELECT COALESCE(SUM(oi.weight_grams), 0) as used
+         FROM orders o 
+         JOIN order_items oi ON o.id = oi.order_id
+         JOIN product_types pt ON oi.product_type_id = pt.id
+         WHERE o.shop_id = ? 
+           AND o.customer_id = ? 
+           AND pt.product_id = ?
+           AND o.status NOT IN ('cancelled', 'returned')
+           AND DATE(o.created_at) = ?`,
+        [shopId, customerId, productId, today]
+      ) as any[];
+
+      const usedToday = Number(usedRows[0]?.used || 0);
+      const requested = Number(grams);
+      const allowed = (usedToday + requested) <= restriction.daily_gram_limit;
+
+      res.json({ 
+        ok: true, 
+        allowed, 
+        limit: restriction.daily_gram_limit, 
+        usedToday 
+      });
+    } catch (error: any) {
+      console.error('Limit check failed:', error);
+      res.status(500).json({ ok: false, error: 'Limit check failed' });
+    }
   },
 
   update: async (req: Request, res: Response) => {
     const { id } = req.params;
     const shopId = (req as any).shopId;
-    console.log('Update restriction request body:', req.body);
-    const { isActive } = req.body;
-    await execute(
-      `UPDATE restrictions SET is_active = ?
-       WHERE id = ? AND shop_id = ?`,
-      [isActive, id, shopId]
-    );
-    
-    res.json({ ok: true, message: 'Restriction updated' });
+    const { isActive, dailyGramLimit } = req.body;
+
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const [result] = await connection.execute(
+        `UPDATE restrictions 
+         SET is_active = ?, daily_gram_limit = ?
+         WHERE id = ? AND shop_id = ?`,
+        [isActive, dailyGramLimit, id, shopId]
+      ) as any[];
+
+      if (result.affectedRows === 0) {
+        await connection.rollback();
+        return res.status(404).json({ ok: false, error: 'Restriction not found' });
+      }
+
+      await connection.commit();
+      res.json({ ok: true, message: 'Restriction updated successfully' });
+    } catch (error: any) {
+      await connection.rollback();
+      console.error('Restriction update failed:', error);
+      res.status(500).json({ ok: false, error: 'Failed to update restriction' });
+    } finally {
+      connection.release();
+    }
+  },
+
+  delete: async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const shopId = (req as any).shopId;
+
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const [result] = await connection.execute(
+        'DELETE FROM restrictions WHERE id = ? AND shop_id = ?',
+        [id, shopId]
+      ) as any[];
+
+      if (result.affectedRows === 0) {
+        await connection.rollback();
+        return res.status(404).json({ ok: false, error: 'Restriction not found' });
+      }
+
+      await connection.commit();
+      res.json({ ok: true, message: 'Restriction deleted successfully' });
+    } catch (error: any) {
+      await connection.rollback();
+      console.error('Restriction deletion failed:', error);
+      res.status(500).json({ ok: false, error: 'Failed to delete restriction' });
+    } finally {
+      connection.release();
+    }
   }
 };
