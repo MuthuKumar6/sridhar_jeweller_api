@@ -1,4 +1,4 @@
-name: Deploy Backend
+name: Deploy
 
 on:
   push:
@@ -10,22 +10,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to cPanel
+      - name: SSH Deploy
         uses: appleboy/ssh-action@v1.0.3
 
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
+          host: moiaccount.in
+          username: moiaccou
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.PORT }}
+          port: 22
 
           script: |
-            cd ~/sridhar_jeweller_api
-
-            git pull origin main
-
-            npm install
-
-            npm run build
-
-            touch tmp/restart.txt
+            whoami
+            pwd
