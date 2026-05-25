@@ -14,6 +14,7 @@ import billRoutes from './routes/billRoutes';
 import restrictionRoutes from './routes/restrictionRoutes';
 import alertRoutes from './routes/alertRoutes';
 import { checkDBConnection } from './config/db';
+import shopRoutes from './routes/shopRoutes';
 
 const app = express();
 
@@ -30,6 +31,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/restrictions', restrictionRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/shop', shopRoutes);
+
 
 app.use("/", (req, res) => {
   res.json({ ok: true, message: "Welcome to Sridhar Jewellers ERP Backend API" });
