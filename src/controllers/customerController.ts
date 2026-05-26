@@ -1,64 +1,3 @@
-// import { Request, Response } from 'express';
-// import { query, execute } from '../utils/db';
-// import { genId } from '../utils/generateId';
-
-// export const customerController = {
-//   getAll: async (req: Request, res: Response) => {
-//     const shopId = (req as any).shopId;
-//     const data = await query(
-//       'SELECT * FROM customers WHERE shop_id = ? ORDER BY created_at DESC', 
-//       [shopId]
-//     );
-//     res.json({ ok: true, data });
-//   },
-
-//   getById: async (req: Request, res: Response) => {
-//     const { id } = req.params;
-//     const shopId = (req as any).shopId;
-//     const [customer] = await query(
-//       'SELECT * FROM customers WHERE id = ? AND shop_id = ?', 
-//       [id, shopId]
-//     );
-//     res.json({ ok: true, data: customer });
-//   },
-
-//   create: async (req: Request, res: Response) => {
-//     const shopId = (req as any).shopId;
-//     const id = genId();
-//     const { name, phone, email, address, gstin, dailyGramLimit = 0 } = req.body;
-
-//     await execute(
-//       `INSERT INTO customers (id, shop_id, name, phone, email, address, gstin, daily_gram_limit)
-//        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-//       [id, shopId, name, phone, email, address, gstin, dailyGramLimit]
-//     );
-
-//     res.status(201).json({ ok: true, data: { id, ...req.body } });
-//   },
-
-//   update: async (req: Request, res: Response) => {
-//     const { id } = req.params;
-//     const shopId = (req as any).shopId;
-//     const { name, phone, email, address, gstin, dailyGramLimit } = req.body;
-
-//     await execute(
-//       `UPDATE customers SET name=?, phone=?, email=?, address=?, gstin=?, daily_gram_limit=?
-//        WHERE id=? AND shop_id=?`,
-//       [name, phone, email, address, gstin, dailyGramLimit, id, shopId]
-//     );
-
-//     res.json({ ok: true, message: 'Customer updated' });
-//   },
-
-//   delete: async (req: Request, res: Response) => {
-//     const { id } = req.params;
-//     const shopId = (req as any).shopId;
-//     await execute('DELETE FROM customers WHERE id = ? AND shop_id = ?', [id, shopId]);
-//     res.json({ ok: true, message: 'Customer deleted' });
-//   }
-// };
-
-
 import { Request, Response } from 'express';
 import { genId } from '../utils/generateId';
 import pool from '../config/db';
@@ -100,62 +39,6 @@ export const customerController = {
       res.status(500).json({ ok: false, error: 'Failed to fetch customer' });
     }
   },
-
-  // create: async (req: Request, res: Response) => {
-  //   const shopId = (req as any).shopId;
-  //   const { name, phone, email, address, gstin, dailyGramLimit = 0 } = req.body;
-
-  //   if (!name?.trim() || !phone?.trim()) {
-  //     return res.status(400).json({ 
-  //       ok: false, 
-  //       error: 'Customer name and phone are required' 
-  //     });
-  //   }
-
-  //   const connection = await pool.getConnection();
-
-  //   try {
-  //     await connection.beginTransaction();
-
-  //     const id = genId();
-
-  //     const safeName = name.trim();
-  //     const safePhone = phone.trim();
-  //     const safeEmail = email ? email.trim().toLowerCase() : null;
-  //     const safeAddress = address ? address.trim() : null;
-  //     const safeGstin = gstin ? gstin.trim().toUpperCase() : null;
-
-  //     // Optional: Check for duplicate phone
-  //     const [existing] = await connection.execute(
-  //       'SELECT id FROM customers WHERE shop_id = ? AND phone = ?',
-  //       [shopId, safePhone]
-  //     );
-
-  //     if ((existing as any[]).length > 0) {
-  //       await connection.rollback();
-  //       return res.status(409).json({ ok: false, error: 'Customer with this phone already exists' });
-  //     }
-
-  //     await connection.execute(
-  //       `INSERT INTO customers (id, shop_id, name, phone, email, address, gstin, daily_gram_limit)
-  //        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  //       [id, shopId, safeName, safePhone, safeEmail, safeAddress, safeGstin, dailyGramLimit]
-  //     );
-
-  //     await connection.commit();
-
-  //     res.status(201).json({ 
-  //       ok: true, 
-  //       data: { id, name: safeName, phone: safePhone, email: safeEmail, ...req.body } 
-  //     });
-  //   } catch (error: any) {
-  //     await connection.rollback();
-  //     console.error('Customer creation failed:', error);
-  //     res.status(500).json({ ok: false, error: 'Failed to create customer' });
-  //   } finally {
-  //     connection.release();
-  //   }
-  // },
 
   create: async (req: Request, res: Response) => {
     const shopId = (req as any).shopId;
@@ -352,35 +235,6 @@ export const customerController = {
     }
   },
 
-  // delete: async (req: Request, res: Response) => {
-  //   const { id } = req.params;
-  //   const shopId = (req as any).shopId;
-
-  //   const connection = await pool.getConnection();
-
-  //   try {
-  //     await connection.beginTransaction();
-
-  //     const [result] = await connection.execute(
-  //       'DELETE FROM customers WHERE id = ? AND shop_id = ?',
-  //       [id, shopId]
-  //     ) as any[];
-
-  //     if (result.affectedRows === 0) {
-  //       await connection.rollback();
-  //       return res.status(404).json({ ok: false, error: 'Customer not found' });
-  //     }
-
-  //     await connection.commit();
-  //     res.json({ ok: true, message: 'Customer deleted successfully' });
-  //   } catch (error: any) {
-  //     await connection.rollback();
-  //     console.error('Customer deletion failed:', error);
-  //     res.status(500).json({ ok: false, error: 'Failed to delete customer' });
-  //   } finally {
-  //     connection.release();
-  //   }
-  // }
 
   delete: async (req: Request, res: Response) => {
     const { id } = req.params;

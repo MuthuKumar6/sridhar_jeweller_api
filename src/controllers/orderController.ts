@@ -1,246 +1,9 @@
-// import { Request, Response } from 'express';
-// import { query, execute } from '../utils/db';
-// import { genId, genOrderNumber } from '../utils/generateId';
-
-// export const orderController = {
-//   getAll: async (req: Request, res: Response) => {
-//     const shopId = (req as any).shopId;
-
-//     const orders = await query(
-//       'SELECT * FROM orders WHERE shop_id = ? ORDER BY created_at DESC',
-//       [shopId]
-//     ) as any[];
-
-//     // Fetch items for each order
-//     const ordersWithItems = await Promise.all(
-//       orders.map(async (order) => {
-//         const items = await query(
-//           'SELECT * FROM order_items WHERE order_id = ?',
-//           [order.id]
-//         ) as any[];
-
-//         return {
-//           ...order,
-//           items: items.map(item => ({
-//             ...item,
-//             huids: JSON.parse(item.huids || '[]'),  // parse back from JSON string
-//           })),
-//         };
-//       })
-//     );
-
-//     res.json({ ok: true, data: ordersWithItems });
-//   },
-
-//   create: async (req: Request, res: Response) => {
-//     const shopId = (req as any).shopId;
-//     const { customerId, items, notes = '', paymentDueDate } = req.body;
-
-//     // Generate Order Number
-//     const countRes = await query('SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?', [shopId]);
-//     const orderNumber = genOrderNumber((countRes as any)[0].cnt);
-
-//     const orderId = genId();
-//     let totalWeight = 0;
-//     let subtotal = 0;
-//     let gstAmount = 0;
-
-//     // Create Order
-//     await execute(
-//       `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
-//        VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-//       [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
-//     );
-
-//     // Process Items
-//     for (const item of items) {
-//       const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
-//       subtotal += amount;
-//       totalWeight += item.weightGrams;
-
-//       await execute(
-//         `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
-//           weight_grams, rate_per_gram, making_charges, amount)
-//          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-//         [
-//           genId(), orderId, item.productTypeId, item.quantity,
-//           JSON.stringify(item.huids || []), item.weightGrams,
-//           item.ratePerGram, item.makingCharges, amount
-//         ]
-//       );
-
-//       // Deduct Stock
-//       await execute(
-//         'UPDATE product_types SET in_stock = in_stock - ? WHERE id = ? AND shop_id = ?',
-//         [item.quantity, item.productTypeId, shopId]
-//       );
-//     }
-
-//     gstAmount = subtotal * 0.03; // 3% GST
-//     const totalAmount = subtotal + gstAmount;
-
-//     // Update Order Totals
-//     await execute(
-//       `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
-//        WHERE id = ?`,
-//       [totalWeight, subtotal, gstAmount, totalAmount, orderId]
-//     );
-
-//     res.status(201).json({
-//       ok: true,
-//       orderId,
-//       orderNumber,
-//       totalAmount
-//     });
-//   },
-
-//   updateStatus: async (req: Request, res: Response) => {
-//     const { id } = req.params;
-//     const { status } = req.body;
-//     const shopId = (req as any).shopId;
-
-//     console.log('Updating order status:', { id, status, shopId });
-
-//     const [order] = await query('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [id, shopId]);
-
-//     if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
-
-//     await execute('UPDATE orders SET status = ? WHERE id = ? AND shop_id = ?', [status, id, shopId]);
-
-//     // If cancelled, return stock
-//     if (status === 'cancelled') {
-//       const items = await query('SELECT * FROM order_items WHERE order_id = ?', [id]);
-//       for (const item of items as any[]) {
-//         await execute(
-//           'UPDATE product_types SET in_stock = in_stock + ? WHERE id = ? AND shop_id = ?',
-//           [item.quantity, item.product_type_id, shopId]
-//         );
-//       }
-//     }
-
-//     res.json({ ok: true, message: 'Order status updated' });
-//   },
-
-//   delete: async (req: Request, res: Response) => {
-//     const { id } = req.params;
-//     const shopId = (req as any).shopId;
-//     await execute('DELETE FROM orders WHERE id = ? AND shop_id = ?', [id, shopId]);
-//     res.json({ ok: true });
-//   }
-// };
-
-
 import { Request, Response } from 'express';
 import { query, execute } from '../utils/db';
 import { genId, genOrderNumber } from '../utils/generateId';
 import pool from '../config/db';
 
 export const orderController = {
-  // getAll: async (req: Request, res: Response) => {
-  //   const shopId = (req as any).shopId;
-
-  //   const orders = await query(
-  //     'SELECT * FROM orders WHERE shop_id = ? ORDER BY created_at DESC',
-  //     [shopId]
-  //   ) as any[];
-
-  //   const ordersWithItems = await Promise.all(
-  //     orders.map(async (order) => {
-  //       const items = await query(
-  //         'SELECT * FROM order_items WHERE order_id = ?',
-  //         [order.id]
-  //       ) as any[];
-
-  //       return {
-  //         ...order,
-  //         items: items.map(item => ({
-  //           ...item,
-  //           huids: JSON.parse(item.huids || '[]'),
-  //         })),
-  //       };
-  //     })
-  //   );
-
-  //   res.json({ ok: true, data: ordersWithItems });
-  // },
-
-  // create: async (req: Request, res: Response) => {
-  //   const shopId = (req as any).shopId;
-  //   const { customerId, items, notes = '', paymentDueDate } = req.body;
-
-  //   const connection = await pool.getConnection(); // ← Need to import pool
-
-  //   try {
-  //     await connection.beginTransaction();
-
-  //     // Generate Order Number
-  //     const countRes = await connection.execute(
-  //       'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?',
-  //       [shopId]
-  //     );
-  //     const orderNumber = genOrderNumber((countRes as any)[0].cnt);
-
-  //     const orderId = genId();
-  //     let totalWeight = 0;
-  //     let subtotal = 0;
-
-  //     // Create Order
-  //     await connection.execute(
-  //       `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
-  //        VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-  //       [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
-  //     );
-
-  //     // Process Items
-  //     for (const item of items) {
-  //       const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
-  //       subtotal += amount;
-  //       totalWeight += item.weightGrams;
-
-  //       await connection.execute(
-  //         `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
-  //           weight_grams, rate_per_gram, making_charges, amount)
-  //          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  //         [
-  //           genId(), orderId, item.productTypeId, item.quantity,
-  //           JSON.stringify(item.huids || []), item.weightGrams,
-  //           item.ratePerGram, item.makingCharges, amount
-  //         ]
-  //       );
-
-  //       // Deduct Stock
-  //       await connection.execute(
-  //         'UPDATE product_types SET in_stock = in_stock - ? WHERE id = ? AND shop_id = ?',
-  //         [item.quantity, item.productTypeId, shopId]
-  //       );
-  //     }
-
-  //     const gstAmount = subtotal * 0.03; // 3% GST
-  //     const totalAmount = subtotal + gstAmount;
-
-  //     // Update Order Totals
-  //     await connection.execute(
-  //       `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
-  //        WHERE id = ?`,
-  //       [totalWeight, subtotal, gstAmount, totalAmount, orderId]
-  //     );
-
-  //     await connection.commit();
-
-  //     res.status(201).json({
-  //       ok: true,
-  //       orderId,
-  //       orderNumber,
-  //       totalAmount
-  //     });
-  //   } catch (err) {
-  //     await connection.rollback();
-  //     console.error('Order creation failed:', err);
-  //     res.status(500).json({ ok: false, error: 'Order creation failed' });
-  //   } finally {
-  //     connection.release();
-  //   }
-  // },
 
   getAll: async (req: Request, res: Response) => {
     const shopId = (req as any).shopId;
@@ -300,41 +63,125 @@ export const orderController = {
     res.json({ ok: true, data: ordersWithItems });
   },
 
-
   // create: async (req: Request, res: Response) => {
   //   const shopId = (req as any).shopId;
   //   const { customerId, items, notes = '', paymentDueDate } = req.body;
 
+  //   // ==================== VALIDATIONS ====================
+  //   if (!customerId || typeof customerId !== 'string' || customerId.trim() === '') {
+  //     return res.status(400).json({ ok: false, error: 'Valid customerId is required' });
+  //   }
+
+  //   if (!Array.isArray(items) || items.length === 0) {
+  //     return res.status(400).json({ ok: false, error: 'At least one item is required' });
+  //   }
+
+  //   for (let i = 0; i < items.length; i++) {
+  //     const item = items[i];
+
+  //     if (!item || typeof item !== 'object') {
+  //       return res.status(400).json({ ok: false, error: `Invalid item at index ${i}` });
+  //     }
+
+  //     if (!item.productTypeId || typeof item.productTypeId !== 'string') {
+  //       return res.status(400).json({ ok: false, error: `productTypeId is required at item ${i}` });
+  //     }
+
+  //     if (typeof item.quantity !== 'number' || item.quantity <= 0) {
+  //       return res.status(400).json({ ok: false, error: `quantity must be positive at item ${i}` });
+  //     }
+
+  //     if (typeof item.weightGrams !== 'number' || item.weightGrams <= 0) {
+  //       return res.status(400).json({ ok: false, error: `weightGrams must be positive at item ${i}` });
+  //     }
+
+  //     if (typeof item.ratePerGram !== 'number' || item.ratePerGram <= 0) {
+  //       return res.status(400).json({ ok: false, error: `ratePerGram must be positive at item ${i}` });
+  //     }
+
+  //     if (typeof item.makingCharges !== 'number' || item.makingCharges < 0) {
+  //       return res.status(400).json({ ok: false, error: `makingCharges cannot be negative at item ${i}` });
+  //     }
+
+  //     if (item.huids !== undefined && !Array.isArray(item.huids)) {
+  //       return res.status(400).json({ ok: false, error: `huids must be an array at item ${i}` });
+  //     }
+  //   }
+
+  //   // paymentDueDate validation
+  //   if (paymentDueDate) {
+  //     const parsedDueDate = new Date(paymentDueDate);
+  //     if (isNaN(parsedDueDate.getTime())) {
+  //       return res.status(400).json({ ok: false, error: 'Invalid paymentDueDate format' });
+  //     }
+  //     if (parsedDueDate < new Date()) {
+  //       return res.status(400).json({ ok: false, error: 'paymentDueDate cannot be in the past' });
+  //     }
+  //   }
+
+  //   // ==================== BUSINESS LOGIC ====================
   //   const connection = await pool.getConnection();
 
   //   try {
   //     await connection.beginTransaction();
 
-  //     // Generate Order Number
-  //     const [countRes] = await connection.execute(
-  //       'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?',
-  //       [shopId]
-  //     );
-  //     const orderNumber = genOrderNumber((countRes as any).cnt);
+  //     // Verify customer belongs to shop
+  //     const [customerRows] = await connection.execute(
+  //       'SELECT id FROM customers WHERE id = ? AND shop_id = ?',
+  //       [customerId, shopId]
+  //     ) as any[];
+
+  //     if (customerRows.length === 0) {
+  //       await connection.rollback();
+  //       return res.status(400).json({ ok: false, error: 'Customer not found or does not belong to this shop' });
+  //     }
 
   //     const orderId = genId();
+  //     let orderNumber: string;
+  //     let attempts = 0;
+  //     const maxAttempts = 10;
+  //     let generated = false;
+
+  //     // Retry loop for unique order_number
+  //     while (attempts < maxAttempts) {
+  //       const [countRes] = await connection.execute(
+  //         'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?',
+  //         [shopId]
+  //       );
+
+  //       const count = (countRes as any)[0].cnt;
+  //       orderNumber = genOrderNumber(count + attempts);
+
+  //       try {
+  //         await connection.execute(
+  //           `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
+  //            VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+  //           [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
+  //         );
+  //         generated = true;
+  //         break;
+  //       } catch (err: any) {
+  //         if (err.code === 'ER_DUP_ENTRY' && err.message.includes('order_number')) {
+  //           attempts++;
+  //           continue;
+  //         }
+  //         throw err;
+  //       }
+  //     }
+
+  //     if (!generated) {
+  //       throw new Error('Failed to generate unique order number');
+  //     }
+
   //     let totalWeight = 0;
   //     let subtotal = 0;
 
-  //     // Create Order first
-  //     await connection.execute(
-  //       `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
-  //        VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-  //       [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
-  //     );
-
-  //     // Process Items with Stock Guard
+  //     // Process Items
   //     for (const item of items) {
   //       const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
   //       subtotal += amount;
   //       totalWeight += item.weightGrams;
 
-  //       // 1. Insert order item
   //       await connection.execute(
   //         `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
   //           weight_grams, rate_per_gram, making_charges, amount)
@@ -346,7 +193,6 @@ export const orderController = {
   //         ]
   //       );
 
-  //       // 2. Atomic Stock Deduction with Guard
   //       const [result] = await connection.execute(
   //         `UPDATE product_types 
   //          SET in_stock = in_stock - ? 
@@ -362,7 +208,6 @@ export const orderController = {
   //     const gstAmount = subtotal * 0.03;
   //     const totalAmount = subtotal + gstAmount;
 
-  //     // Update Order Totals
   //     await connection.execute(
   //       `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
   //        WHERE id = ?`,
@@ -374,266 +219,6 @@ export const orderController = {
   //     res.status(201).json({
   //       ok: true,
   //       orderId,
-  //       orderNumber,
-  //       totalAmount
-  //     });
-  //   } catch (err: any) {
-  //     await connection.rollback();
-  //     console.error('Order creation failed:', err);
-
-  //     const errorMessage = err.message.includes('Insufficient stock')
-  //       ? err.message
-  //       : 'Order creation failed';
-
-  //     res.status(400).json({
-  //       ok: false,
-  //       error: errorMessage
-  //     });
-  //   } finally {
-  //     connection.release();
-  //   }
-  // },
-
-
-  // updateStatus: async (req: Request, res: Response) => {
-  //   const { id } = req.params;
-  //   const { status } = req.body;
-  //   const shopId = (req as any).shopId;
-
-  //   const connection = await pool.getConnection();
-
-  //   try {
-  //     await connection.beginTransaction();
-
-  //     const [order] = await connection.execute(
-  //       'SELECT * FROM orders WHERE id = ? AND shop_id = ?',
-  //       [id, shopId]
-  //     ) as any[];
-
-  //     if (!order) {
-  //       await connection.rollback();
-  //       return res.status(404).json({ ok: false, error: 'Order not found' });
-  //     }
-
-  //     await connection.execute(
-  //       'UPDATE orders SET status = ? WHERE id = ? AND shop_id = ?',
-  //       [status, id, shopId]
-  //     );
-
-  //     // If cancelled, return stock
-  //     if (status === 'cancelled') {
-  //       const items = await connection.execute(
-  //         'SELECT * FROM order_items WHERE order_id = ?',
-  //         [id]
-  //       ) as any[];
-
-  //       for (const item of items) {
-  //         await connection.execute(
-  //           'UPDATE product_types SET in_stock = in_stock + ? WHERE id = ? AND shop_id = ?',
-  //           [item.quantity, item.product_type_id, shopId]
-  //         );
-  //       }
-  //     }
-
-  //     await connection.commit();
-  //     res.json({ ok: true, message: 'Order status updated' });
-  //   } catch (err) {
-  //     await connection.rollback();
-  //     console.error('Order status update failed:', err);
-  //     res.status(500).json({ ok: false, error: 'Failed to update order status' });
-  //   } finally {
-  //     connection.release();
-  //   }
-  // },
-
-  // create: async (req: Request, res: Response) => {
-  //   const shopId = (req as any).shopId;
-  //   const { customerId, items, notes = '', paymentDueDate } = req.body;
-
-  //   // ==================== VALIDATIONS ====================
-
-  //   // 1. Customer ID validation
-  //   if (!customerId || typeof customerId !== 'string' || customerId.trim() === '') {
-  //     return res.status(400).json({
-  //       ok: false,
-  //       error: 'Valid customerId is required'
-  //     });
-  //   }
-
-  //   // 2. Items validation
-  //   if (!Array.isArray(items) || items.length === 0) {
-  //     return res.status(400).json({
-  //       ok: false,
-  //       error: 'At least one item is required'
-  //     });
-  //   }
-
-  //   // 3. Validate each item
-  //   for (let i = 0; i < items.length; i++) {
-  //     const item = items[i];
-
-  //     if (!item || typeof item !== 'object') {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: `Invalid item at index ${i}`
-  //       });
-  //     }
-
-  //     // productTypeId
-  //     if (!item.productTypeId || typeof item.productTypeId !== 'string') {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: `productTypeId is required and must be string at item ${i}`
-  //       });
-  //     }
-
-  //     // quantity
-  //     if (typeof item.quantity !== 'number' || item.quantity <= 0) {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: `quantity must be positive number at item ${i}`
-  //       });
-  //     }
-
-  //     // weightGrams
-  //     if (typeof item.weightGrams !== 'number' || item.weightGrams <= 0) {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: `weightGrams must be positive number at item ${i}`
-  //       });
-  //     }
-
-  //     // ratePerGram
-  //     if (item.ratePerGram <= 0) {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: `ratePerGram must be positive number at item ${i}`
-  //       });
-  //     }
-
-  //     // makingCharges
-  //     if (typeof item.makingCharges !== 'number' || item.makingCharges < 0) {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: `makingCharges cannot be negative at item ${i}`
-  //       });
-  //     }
-
-  //     // Optional: huids
-  //     if (item.huids !== undefined && !Array.isArray(item.huids)) {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: `huids must be an array at item ${i}`
-  //       });
-  //     }
-  //   }
-
-  //   // 4. paymentDueDate validation
-  //   let parsedDueDate: Date | null = null;
-  //   if (paymentDueDate) {
-  //     parsedDueDate = new Date(paymentDueDate);
-  //     if (isNaN(parsedDueDate.getTime())) {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: 'Invalid paymentDueDate format'
-  //       });
-  //     }
-  //     if (parsedDueDate < new Date()) {
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: 'paymentDueDate cannot be in the past'
-  //       });
-  //     }
-  //   }
-
-  //   // ==================== BUSINESS LOGIC ====================
-
-  //   const connection = await pool.getConnection();
-
-  //   try {
-  //     await connection.beginTransaction();
-
-  //     // Verify customer belongs to this shop
-  //     const [customerRows] = await connection.execute(
-  //       'SELECT id FROM customers WHERE id = ? AND shop_id = ?',
-  //       [customerId, shopId]
-  //     ) as any[];
-
-  //     if (customerRows.length === 0) {
-  //       await connection.rollback();
-  //       return res.status(400).json({
-  //         ok: false,
-  //         error: 'Customer not found or does not belong to this shop'
-  //       });
-  //     }
-
-  //     // Generate Order Number
-  //     const [countRes] = await connection.execute(
-  //       'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?',
-  //       [shopId]
-  //     );
-
-  //     const orderNumber = genOrderNumber((countRes as any)[0].cnt);
-  //     const orderId = genId();
-
-  //     let totalWeight = 0;
-  //     let subtotal = 0;
-
-  //     // Create Order
-  //     await connection.execute(
-  //       `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
-  //      VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-  //       [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
-  //     );
-
-  //     // Process Items
-  //     for (const item of items) {
-  //       console.log('Processing item:', item);
-  //       const amount = (item.weightGrams * item.ratePerGram) + item.makingCharges;
-  //       subtotal += amount;
-  //       totalWeight += item.weightGrams;
-
-  //       // Insert order item
-  //       await connection.execute(
-  //         `INSERT INTO order_items (id, order_id, product_type_id, quantity, huids, 
-  //         weight_grams, rate_per_gram, making_charges, amount)
-  //        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  //         [
-  //           genId(), orderId, item.productTypeId, item.quantity,
-  //           JSON.stringify(item.huids || []), item.weightGrams,
-  //           item.ratePerGram, item.makingCharges, amount
-  //         ]
-  //       );
-
-  //       // Atomic Stock Deduction
-  //       const [result] = await connection.execute(
-  //         `UPDATE product_types 
-  //        SET in_stock = in_stock - ? 
-  //        WHERE id = ? AND shop_id = ? AND in_stock >= ?`,
-  //         [item.quantity, item.productTypeId, shopId, item.quantity]
-  //       ) as any[];
-
-  //       if (result.affectedRows === 0) {
-  //         throw new Error(`Insufficient stock for product type: ${item.productTypeId}`);
-  //       }
-  //     }
-
-  //     const gstAmount = subtotal * 0.03;
-  //     const totalAmount = subtotal + gstAmount;
-
-  //     // Update Order Totals
-  //     await connection.execute(
-  //       `UPDATE orders SET total_weight = ?, subtotal = ?, gst_amount = ?, total_amount = ?
-  //      WHERE id = ?`,
-  //       [totalWeight, subtotal, gstAmount, totalAmount, orderId]
-  //     );
-
-  //     await connection.commit();
-
-  //     res.status(201).json({
-  //       ok: true,
-  //       orderId,
-  //       orderNumber,
   //       totalAmount
   //     });
 
@@ -645,16 +230,14 @@ export const orderController = {
   //       ? err.message
   //       : 'Order creation failed';
 
-  //     res.status(400).json({
-  //       ok: false,
-  //       error: errorMessage
-  //     });
+  //     res.status(400).json({ ok: false, error: errorMessage });
   //   } finally {
   //     connection.release();
   //   }
   // },
 
-create: async (req: Request, res: Response) => {
+  // ==================== CREATE ORDER ====================
+  create: async (req: Request, res: Response) => {
     const shopId = (req as any).shopId;
     const { customerId, items, notes = '', paymentDueDate } = req.body;
 
@@ -728,41 +311,16 @@ create: async (req: Request, res: Response) => {
       }
 
       const orderId = genId();
-      let orderNumber: string;
-      let attempts = 0;
-      const maxAttempts = 10;
-      let generated = false;
 
-      // Retry loop for unique order_number
-      while (attempts < maxAttempts) {
-        const [countRes] = await connection.execute(
-          'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?',
-          [shopId]
-        );
+      // Generate new formatted Order Number
+      const orderNumber = await genOrderNumber(connection, shopId, customerId);
 
-        const count = (countRes as any)[0].cnt;
-        orderNumber = genOrderNumber(count + attempts);
-
-        try {
-          await connection.execute(
-            `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
-             VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-            [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
-          );
-          generated = true;
-          break;
-        } catch (err: any) {
-          if (err.code === 'ER_DUP_ENTRY' && err.message.includes('order_number')) {
-            attempts++;
-            continue;
-          }
-          throw err;
-        }
-      }
-
-      if (!generated) {
-        throw new Error('Failed to generate unique order number');
-      }
+      // Insert Order
+      await connection.execute(
+        `INSERT INTO orders (id, shop_id, order_number, customer_id, status, notes, payment_due_date)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+        [orderId, shopId, orderNumber, customerId, notes, paymentDueDate]
+      );
 
       let totalWeight = 0;
       let subtotal = 0;
@@ -778,9 +336,15 @@ create: async (req: Request, res: Response) => {
             weight_grams, rate_per_gram, making_charges, amount)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            genId(), orderId, item.productTypeId, item.quantity,
-            JSON.stringify(item.huids || []), item.weightGrams,
-            item.ratePerGram, item.makingCharges, amount
+            genId(),
+            orderId,
+            item.productTypeId,
+            item.quantity,
+            JSON.stringify(item.huids || []),
+            item.weightGrams,
+            item.ratePerGram,
+            item.makingCharges,
+            amount
           ]
         );
 
@@ -810,7 +374,9 @@ create: async (req: Request, res: Response) => {
       res.status(201).json({
         ok: true,
         orderId,
-        totalAmount      });
+        orderNumber,
+        totalAmount
+      });
 
     } catch (err: any) {
       await connection.rollback();
@@ -825,8 +391,6 @@ create: async (req: Request, res: Response) => {
       connection.release();
     }
   },
-
-  
 
 
   updateStatus: async (req: Request, res: Response) => {
