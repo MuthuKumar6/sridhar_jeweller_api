@@ -23,8 +23,49 @@
 #             whoami
 #             pwd
 
+# -------------------------------- New Workflow --------------------------------
+# name: Deploy Backend
 
-name: Deploy Backend
+# on:
+#   push:
+#     branches:
+#       - main
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: SSH Deploy
+#         uses: appleboy/ssh-action@v1.0.3
+
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: ${{ secrets.USERNAME }}
+#           key: ${{ secrets.SSH_KEY }}
+#           port: 22
+
+#           script: |
+#             cd ~/sridhar_jeweller_api
+
+#             echo "Before pull"
+#             git status
+
+#             git pull origin main
+
+#             echo "After pull"
+#             git log --oneline -5
+
+#             npm install
+
+#             npm run build
+
+#             touch tmp/restart.txt
+
+
+
+
+name: Deploy Backend to cPanel (Production)
 
 on:
   push:
@@ -36,28 +77,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: SSH Deploy
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           port: 22
-
           script: |
-            cd ~/sridhar_jeweller_api
+            echo "🚀 Starting Production Deployment..."
 
-            echo "Before pull"
-            git status
+            cd ~/sridhar_jeweller_api
 
             git pull origin main
 
-            echo "After pull"
-            git log --oneline -5
+            source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
 
-            npm install
+            rm -rf dist node_modules package-lock.json
+
+            npm ci --production=false
 
             npm run build
 
-            touch tmp/restart.txt
+            echo "✅ Build Successful"
+
+            # Restart App
+            touch /home/moiaccou/nodevenv/sridhar_jeweller_api/20/tmp/restart.txt
+
+            echo "🎉 Deployment Completed!"
+
