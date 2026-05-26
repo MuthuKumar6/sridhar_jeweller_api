@@ -373,6 +373,7 @@ export const orderController = {
 
       res.status(201).json({
         ok: true,
+        message: 'Order created successfully',
         orderId,
         orderNumber,
         totalAmount
