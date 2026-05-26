@@ -65,6 +65,52 @@
 
 
 
+# name: Deploy Backend to cPanel (Production)
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
+
+#       - name: Deploy via SSH
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: ${{ secrets.USERNAME }}
+#           key: ${{ secrets.SSH_KEY }}
+#           port: 22
+#           script: |
+#             echo "🚀 Starting Production Deployment..."
+
+#             cd ~/sridhar_jeweller_api
+
+#             git pull origin main
+
+#             source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
+
+#             rm -rf dist node_modules package-lock.json
+
+#             npm ci --production=false
+
+#             npm run build
+
+#             echo "✅ Build Successful"
+
+#             # Restart App
+#             touch /home/moiaccou/nodevenv/sridhar_jeweller_api/20/tmp/restart.txt
+
+#             echo "🎉 Deployment Completed!"
+
+
+
 name: Deploy Backend to cPanel (Production)
 
 on:
@@ -75,6 +121,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 8                  # Prevent infinite queuing
 
     steps:
       - name: Checkout Code
@@ -87,25 +134,36 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           port: 22
+          timeout: 300s
           script: |
-            echo "🚀 Starting Production Deployment..."
+            echo "🚀 Starting Deployment - $(date)"
 
+            # Go to project folder
             cd ~/sridhar_jeweller_api
 
-            git pull origin main
+            # Safe git pull (prevents merge conflicts)
+            git fetch origin
+            git reset --hard origin/main
 
+            # Activate Node.js Virtual Environment
             source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
 
+            echo "✅ Node Environment Activated"
+
+            # Clean old files
             rm -rf dist node_modules package-lock.json
 
-            npm ci --production=false
+            # Install Dependencies with fallback
+            echo "📦 Installing dependencies..."
+            npm ci --production=false || npm install --production=false
 
+            # Build Project
+            echo "🔨 Building TypeScript..."
             npm run build
 
-            echo "✅ Build Successful"
+            echo "✅ Build Completed Successfully"
 
-            # Restart App
+            # Restart cPanel Node.js App
             touch /home/moiaccou/nodevenv/sridhar_jeweller_api/20/tmp/restart.txt
 
-            echo "🎉 Deployment Completed!"
-
+            echo "🎉 Deployment Completed Successfully at $(date)"
