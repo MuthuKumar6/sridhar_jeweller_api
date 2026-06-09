@@ -11,7 +11,7 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  connectTimeout: 2000,
+  connectTimeout: 10000, // 10 seconds — prevents cold-start failures on EC2/cloud
 });
 
 export const checkDBConnection = async () => {

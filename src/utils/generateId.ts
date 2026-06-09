@@ -180,15 +180,12 @@
 
 /*** version 3 */
 
-
+import { randomUUID } from 'crypto';
 import { PoolConnection } from 'mysql2/promise';
 
 // ─── genId ───────────────────────────────────────────────────────────────────
-export const genId = (): string => {
-  const ts  = Date.now().toString(36).toUpperCase();
-  const rnd = Math.random().toString(36).substring(2, 10).toUpperCase();
-  return `${ts}${rnd}`;
-};
+// Uses crypto.randomUUID() — collision-proof, built into Node 18+
+export const genId = (): string => randomUUID().replace(/-/g, '').toUpperCase();
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -197,8 +194,8 @@ function getFinancialYear(): string {
   const now   = new Date();
   const month = now.getMonth() + 1; // 1-based
   const year  = now.getFullYear();
-  const fyStart = month >= 4 ? year      : year - 1;
-  const fyEnd   = month >= 4 ? year + 1  : year;
+  const fyStart = month >= 4 ? year     : year - 1;
+  const fyEnd   = month >= 4 ? year + 1 : year;
   return `${(fyStart % 100).toString().padStart(2, '0')}${(fyEnd % 100).toString().padStart(2, '0')}`;
 }
 
@@ -236,7 +233,6 @@ async function nextSequence(
   prefix: string,
   finYear: string,
 ): Promise<number> {
-  // Upsert a row if it doesn't exist yet, then lock it
   await connection.execute(
     `INSERT IGNORE INTO ${table} (shop_id, prefix, fin_year, last_seq)
      VALUES (?, ?, ?, 0)`,
@@ -288,8 +284,6 @@ export const genOrderNumber = async (
     : 'SHP';
 
   const prefix = `ORD-${customerCode}-${shopCode}-${finYear}`;
-
-  // nextSequence must run inside a transaction — caller is responsible
   const seq = await nextSequence(connection, 'order_sequences', shopId, prefix, finYear);
 
   return `${prefix}-${seq.toString().padStart(6, '0')}`;
@@ -322,7 +316,6 @@ export const genBillNumber = async (
     : 'SHP';
 
   const prefix = `BILL-${customerCode}-${shopCode}-${finYear}`;
-
   const seq = await nextSequence(connection, 'bill_sequences', shopId, prefix, finYear);
 
   return `${prefix}-${seq.toString().padStart(6, '0')}`;

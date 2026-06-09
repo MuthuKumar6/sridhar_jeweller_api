@@ -1,7 +1,8 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+
 
 dotenv.config();
 
@@ -36,6 +37,28 @@ app.use('/api/shop', shopRoutes);
 
 app.get("/", (req, res) => {
   res.json({ ok: true, message: "Welcome to Sridhar Jewellers ERP Backend API" });
+});
+
+// const PORT = process.env.PORT || 5000;
+
+// const startServer = async () => {
+//   const dbConnected = await checkDBConnection();
+//   if (!dbConnected) {
+//     console.error('❌ Server stopped due to database issue');
+//     process.exit(1);
+//   }
+
+//   app.listen(PORT, () => {
+//     console.log(`🚀 Sridhar Jewellers ERP running on http://localhost:${PORT}`);
+//   });
+// };
+
+// startServer();
+
+// Global error handler — catches any unhandled errors from async route handlers
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ ok: false, error: 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 5000;

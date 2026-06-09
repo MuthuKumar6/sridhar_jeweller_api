@@ -1,19 +1,193 @@
 
-import { Request, Response } from 'express';
+// import { Request, Response } from 'express';
+// import { genId, genBillNumber } from '../utils/generateId';
+// import pool from '../config/db';
+// import { AuthRequest } from '../middleware/auth';
+
+// export const billController = {
+//   getAll: async (req: AuthRequest, res: Response) => {
+//     const shopId = req.shopId;
+
+//     try {
+//       const [data] = await pool.execute(
+//         'SELECT * FROM bills WHERE shop_id = ? ORDER BY created_at DESC',
+//         [shopId]
+//       );
+
+//       res.json({ ok: true, data });
+//     } catch (error: any) {
+//       console.error('Failed to fetch bills:', error);
+//       res.status(500).json({ ok: false, error: 'Failed to fetch bills' });
+//     }
+//   },
+
+
+//   create: async (req: AuthRequest, res: Response) => {
+//     const shopId = req.shopId;
+//     const {
+//       orderId,
+//       customerId,
+//       items,           // optional - if you want to validate later
+//       subtotal,
+//       gstAmount,
+//       discount = 0,
+//       paidAmount,
+//       paymentMethod
+//     } = req.body;
+
+//     // ==================== VALIDATIONS ====================
+//     if (!customerId || typeof customerId !== 'string') {
+//       return res.status(400).json({ ok: false, error: 'Valid customerId is required' });
+//     }
+
+//     if (typeof subtotal !== 'number' || subtotal < 0) {
+//       return res.status(400).json({ ok: false, error: 'subtotal must be a valid positive number' });
+//     }
+
+//     if (typeof gstAmount !== 'number' || gstAmount < 0) {
+//       return res.status(400).json({ ok: false, error: 'gstAmount must be a valid non-negative number' });
+//     }
+
+//     if (typeof discount !== 'number' || discount < 0) {
+//       return res.status(400).json({ ok: false, error: 'discount cannot be negative' });
+//     }
+
+//     if (typeof paidAmount !== 'number' || paidAmount < 0) {
+//       return res.status(400).json({ ok: false, error: 'paidAmount must be a valid non-negative number' });
+//     }
+
+//     if (!paymentMethod || !['cash', 'online', 'card', 'upi', 'cheque'].includes(paymentMethod)) {
+//       return res.status(400).json({
+//         ok: false,
+//         error: 'Valid paymentMethod is required (cash, online, card, upi, cheque)'
+//       });
+//     }
+
+//     if (orderId && typeof orderId !== 'string') {
+//       return res.status(400).json({ ok: false, error: 'orderId must be a string if provided' });
+//     }
+
+//     const connection = await pool.getConnection();
+
+//     try {
+//       await connection.beginTransaction();
+
+//       // === DUPLICATE BILL GUARD ===
+//       if (orderId) {
+//         const [existingBill] = await connection.execute(
+//           'SELECT id, bill_number FROM bills WHERE shop_id = ? AND order_id = ?',
+//           [shopId, orderId]
+//         ) as any[];
+
+//         if (existingBill.length > 0) {
+//           await connection.rollback();
+//           return res.status(409).json({
+//             ok: false,
+//             error: 'A bill has already been created for this order',
+//             existingBill: existingBill[0]
+//           });
+//         }
+//       }
+
+//       // Verify customer
+//       const [customer] = await connection.execute(
+//         'SELECT id FROM customers WHERE id = ? AND shop_id = ?',
+//         [customerId, shopId]
+//       ) as any[];
+
+//       if (customer.length === 0) {
+//         await connection.rollback();
+//         return res.status(400).json({ ok: false, error: 'Customer not found or does not belong to this shop' });
+//       }
+
+//       // Verify order (if provided)
+//       if (orderId) {
+//         const [order] = await connection.execute(
+//           'SELECT id FROM orders WHERE id = ? AND shop_id = ?',
+//           [orderId, shopId]
+//         ) as any[];
+
+//         if (order.length === 0) {
+//           await connection.rollback();
+//           return res.status(400).json({ ok: false, error: 'Order not found or does not belong to this shop' });
+//         }
+//       }
+
+//       // ==================== Generate New Formatted Bill Number ====================
+//       const billId = genId();
+//       const billNumber = await genBillNumber(connection, shopId, customerId);
+
+//       const totalAmount = subtotal + gstAmount - discount;
+//       const balanceAmount = totalAmount - paidAmount;
+
+//       if (balanceAmount < 0) {
+//         throw new Error('paidAmount cannot be greater than totalAmount');
+//       }
+
+//       // Insert Bill
+//       await connection.execute(
+//         `INSERT INTO bills (id, shop_id, bill_number, order_id, customer_id, subtotal, 
+//                 gst_amount, discount, total_amount, paid_amount, balance_amount, payment_method, status)
+//                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+//         [
+//           billId,
+//           shopId,
+//           billNumber,
+//           orderId || null,
+//           customerId,
+//           subtotal,
+//           gstAmount,
+//           discount,
+//           totalAmount,
+//           paidAmount,
+//           balanceAmount,
+//           paymentMethod,
+//           balanceAmount > 0 ? 'partial' : 'paid'
+//         ]
+//       );
+
+//       await connection.commit();
+
+//       res.status(201).json({
+//         ok: true,
+//         billId,
+//         billNumber,           // ← Added
+//         totalAmount,
+//         balanceAmount
+//       });
+
+//     } catch (error: any) {
+//       await connection.rollback();
+//       console.error('Bill creation failed:', error);
+
+//       const errorMessage = error.message.includes('paidAmount cannot')
+//         ? error.message
+//         : 'Failed to create bill';
+
+//       res.status(400).json({ ok: false, error: errorMessage });
+//     } finally {
+//       connection.release();
+//     }
+//   }
+// };
+
+
+import { Response } from 'express';
 import { genId, genBillNumber } from '../utils/generateId';
 import pool from '../config/db';
 import { AuthRequest } from '../middleware/auth';
 
 export const billController = {
+
   getAll: async (req: AuthRequest, res: Response) => {
     const shopId = req.shopId;
+    if (!shopId) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
     try {
       const [data] = await pool.execute(
         'SELECT * FROM bills WHERE shop_id = ? ORDER BY created_at DESC',
         [shopId]
       );
-
       res.json({ ok: true, data });
     } catch (error: any) {
       console.error('Failed to fetch bills:', error);
@@ -21,13 +195,13 @@ export const billController = {
     }
   },
 
-
   create: async (req: AuthRequest, res: Response) => {
     const shopId = req.shopId;
+    if (!shopId) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
     const {
       orderId,
       customerId,
-      items,           // optional - if you want to validate later
       subtotal,
       gstAmount,
       discount = 0,
@@ -39,40 +213,41 @@ export const billController = {
     if (!customerId || typeof customerId !== 'string') {
       return res.status(400).json({ ok: false, error: 'Valid customerId is required' });
     }
-
     if (typeof subtotal !== 'number' || subtotal < 0) {
       return res.status(400).json({ ok: false, error: 'subtotal must be a valid positive number' });
     }
-
     if (typeof gstAmount !== 'number' || gstAmount < 0) {
       return res.status(400).json({ ok: false, error: 'gstAmount must be a valid non-negative number' });
     }
-
     if (typeof discount !== 'number' || discount < 0) {
       return res.status(400).json({ ok: false, error: 'discount cannot be negative' });
     }
-
     if (typeof paidAmount !== 'number' || paidAmount < 0) {
       return res.status(400).json({ ok: false, error: 'paidAmount must be a valid non-negative number' });
     }
-
     if (!paymentMethod || !['cash', 'online', 'card', 'upi', 'cheque'].includes(paymentMethod)) {
       return res.status(400).json({
         ok: false,
         error: 'Valid paymentMethod is required (cash, online, card, upi, cheque)'
       });
     }
-
     if (orderId && typeof orderId !== 'string') {
       return res.status(400).json({ ok: false, error: 'orderId must be a string if provided' });
     }
+
+    // FIX: compute and validate balance BEFORE opening a transaction
+    const totalAmount = subtotal + gstAmount - discount;
+    if (paidAmount > totalAmount) {
+      return res.status(400).json({ ok: false, error: 'paidAmount cannot exceed totalAmount' });
+    }
+    const balanceAmount = totalAmount - paidAmount;
 
     const connection = await pool.getConnection();
 
     try {
       await connection.beginTransaction();
 
-      // === DUPLICATE BILL GUARD ===
+      // Duplicate bill guard
       if (orderId) {
         const [existingBill] = await connection.execute(
           'SELECT id, bill_number FROM bills WHERE shop_id = ? AND order_id = ?',
@@ -113,36 +288,17 @@ export const billController = {
         }
       }
 
-      // ==================== Generate New Formatted Bill Number ====================
       const billId = genId();
       const billNumber = await genBillNumber(connection, shopId, customerId);
 
-      const totalAmount = subtotal + gstAmount - discount;
-      const balanceAmount = totalAmount - paidAmount;
-
-      if (balanceAmount < 0) {
-        throw new Error('paidAmount cannot be greater than totalAmount');
-      }
-
-      // Insert Bill
       await connection.execute(
-        `INSERT INTO bills (id, shop_id, bill_number, order_id, customer_id, subtotal, 
+        `INSERT INTO bills (id, shop_id, bill_number, order_id, customer_id, subtotal,
                 gst_amount, discount, total_amount, paid_amount, balance_amount, payment_method, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          billId,
-          shopId,
-          billNumber,
-          orderId || null,
-          customerId,
-          subtotal,
-          gstAmount,
-          discount,
-          totalAmount,
-          paidAmount,
-          balanceAmount,
-          paymentMethod,
-          balanceAmount > 0 ? 'partial' : 'paid'
+          billId, shopId, billNumber, orderId || null, customerId,
+          subtotal, gstAmount, discount, totalAmount, paidAmount, balanceAmount,
+          paymentMethod, balanceAmount > 0 ? 'partial' : 'paid'
         ]
       );
 
@@ -151,20 +307,14 @@ export const billController = {
       res.status(201).json({
         ok: true,
         billId,
-        billNumber,           // ← Added
+        billNumber,
         totalAmount,
         balanceAmount
       });
-
     } catch (error: any) {
       await connection.rollback();
       console.error('Bill creation failed:', error);
-
-      const errorMessage = error.message.includes('paidAmount cannot')
-        ? error.message
-        : 'Failed to create bill';
-
-      res.status(400).json({ ok: false, error: errorMessage });
+      res.status(500).json({ ok: false, error: 'Failed to create bill' });
     } finally {
       connection.release();
     }

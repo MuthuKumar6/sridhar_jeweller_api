@@ -15,79 +15,49 @@ export const signup = async (req: AuthRequest, res: Response) => {
 
     // 1. Shop Name
     if (!shopName?.trim()) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Shop name is required'
-      });
+      return res.status(400).json({ ok: false, error: 'Shop name is required' });
     }
     const safeShopName = shopName.trim();
     if (safeShopName.length < 3 || safeShopName.length > 100) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Shop name must be between 3 and 100 characters'
-      });
+      return res.status(400).json({ ok: false, error: 'Shop name must be between 3 and 100 characters' });
     }
 
     // 2. Owner Name (optional)
     const safeOwnerName = ownerName ? ownerName.trim() : '';
     if (safeOwnerName.length > 100) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Owner name cannot exceed 100 characters'
-      });
+      return res.status(400).json({ ok: false, error: 'Owner name cannot exceed 100 characters' });
     }
 
     // 3. Email
     if (!email?.trim()) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Email is required'
-      });
+      return res.status(400).json({ ok: false, error: 'Email is required' });
     }
     const safeEmail = email.trim().toLowerCase();
-
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(safeEmail)) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Please provide a valid email address'
-      });
+      return res.status(400).json({ ok: false, error: 'Please provide a valid email address' });
     }
 
     // 4. Phone (optional but validated if provided)
     let safePhone: string | null = null;
     if (phone) {
       const phoneStr = phone.toString().trim();
-      // Allow only digits, common for Indian numbers (10 digits)
-      const phoneRegex = /^\d{10}$/; // Strict 10 digits (India)
-
+      const phoneRegex = /^\d{10}$/;
       if (!phoneRegex.test(phoneStr)) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Phone number must be exactly 10 digits (e.g., 9876543210)'
-        });
+        return res.status(400).json({ ok: false, error: 'Phone number must be exactly 10 digits (e.g., 9876543210)' });
       }
       safePhone = phoneStr;
     }
 
     // 5. Password
     if (!password) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Password is required'
-      });
+      return res.status(400).json({ ok: false, error: 'Password is required' });
     }
     if (password.length < 6) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Password must be at least 6 characters long'
-      });
+      return res.status(400).json({ ok: false, error: 'Password must be at least 6 characters long' });
     }
     if (password.length > 128) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Password is too long'
-      });
+      return res.status(400).json({ ok: false, error: 'Password is too long' });
     }
 
     // ==================== BUSINESS LOGIC ====================
@@ -100,7 +70,6 @@ export const signup = async (req: AuthRequest, res: Response) => {
     try {
       await connection.beginTransaction();
 
-      // Check for existing email
       const [existing] = await connection.execute(
         'SELECT id FROM shops WHERE email = ?',
         [safeEmail]
@@ -108,13 +77,9 @@ export const signup = async (req: AuthRequest, res: Response) => {
 
       if ((existing as any[]).length > 0) {
         await connection.rollback();
-        return res.status(409).json({
-          ok: false,
-          error: 'Email already exists'
-        });
+        return res.status(409).json({ ok: false, error: 'Email already exists' });
       }
 
-      // Insert new shop
       await connection.execute(
         `INSERT INTO shops (id, shop_name, owner_name, email, phone, password_hash)
          VALUES (?, ?, ?, ?, ?, ?)`,
@@ -144,10 +109,7 @@ export const signup = async (req: AuthRequest, res: Response) => {
     }
   } catch (error: any) {
     console.error('Signup error:', error);
-    res.status(500).json({
-      ok: false,
-      error: 'Registration failed. Please try again.'
-    });
+    res.status(500).json({ ok: false, error: 'Registration failed. Please try again.' });
   }
 };
 
@@ -155,8 +117,18 @@ export const login = async (req: AuthRequest, res: Response) => {
   try {
     const { email, password } = req.body;
 
+    // ==================== VALIDATIONS ====================
+    if (!email?.trim()) {
+      return res.status(400).json({ ok: false, error: 'Email is required' });
+    }
+    if (!password) {
+      return res.status(400).json({ ok: false, error: 'Password is required' });
+    }
+
+    // ==================== BUSINESS LOGIC ====================
     const [rows] = await pool.execute(
-      'SELECT * FROM shops WHERE email = ?', [email.toLowerCase()]
+      'SELECT * FROM shops WHERE email = ?',
+      [email.trim().toLowerCase()]
     );
 
     const shop = (rows as any[])[0];
@@ -179,6 +151,7 @@ export const login = async (req: AuthRequest, res: Response) => {
       token
     });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 };

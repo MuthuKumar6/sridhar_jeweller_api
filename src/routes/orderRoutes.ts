@@ -8,7 +8,7 @@ router.use(protect);
 router.get('/', orderController.getAll);
 router.post('/', orderController.create);
 router.patch('/:id/status', orderController.updateStatus);
-router.patch('/orders/:id', orderController.update);
+router.patch('/:id', orderController.update);
 router.delete('/:id', orderController.delete);
 
 export default router;
