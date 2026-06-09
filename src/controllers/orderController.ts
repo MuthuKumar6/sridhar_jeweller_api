@@ -2,11 +2,12 @@ import { Request, Response } from 'express';
 import { query, execute } from '../utils/db';
 import { genId, genOrderNumber } from '../utils/generateId';
 import pool from '../config/db';
+import { AuthRequest } from '../middleware/auth';
 
 export const orderController = {
 
-  getAll: async (req: Request, res: Response) => {
-    const shopId = (req as any).shopId;
+  getAll: async (req: AuthRequest, res: Response) => {
+    const shopId = req.shopId;
 
     const rows = await query(
       `SELECT 
@@ -63,7 +64,7 @@ export const orderController = {
     res.json({ ok: true, data: ordersWithItems });
   },
 
-  // create: async (req: Request, res: Response) => {
+  // create: async (req: AuthRequest, res: Response) => {
   //   const shopId = (req as any).shopId;
   //   const { customerId, items, notes = '', paymentDueDate } = req.body;
 
@@ -237,8 +238,8 @@ export const orderController = {
   // },
 
   // ==================== CREATE ORDER ====================
-  create: async (req: Request, res: Response) => {
-    const shopId = (req as any).shopId;
+  create: async (req: AuthRequest, res: Response) => {
+    const shopId = req.shopId;
     const { customerId, items, notes = '', paymentDueDate } = req.body;
 
     // ==================== VALIDATIONS ====================
@@ -394,10 +395,10 @@ export const orderController = {
   },
 
 
-  updateStatus: async (req: Request, res: Response) => {
+  updateStatus: async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { status } = req.body;
-    const shopId = (req as any).shopId;
+    const shopId = req.shopId;
 
     if (!['pending', 'approved', 'dispatched', 'delivered', 'cancelled'].includes(status)) {
       return res.status(400).json({ ok: false, error: 'Invalid status' });
@@ -483,10 +484,10 @@ export const orderController = {
     }
   },
 
-  update: async (req: Request, res: Response) => {
+  update: async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { notes, paymentDueDate, status } = req.body;
-    const shopId = (req as any).shopId;
+    const shopId = req.shopId;
 
     if (!notes && paymentDueDate === undefined && !status) {
       return res.status(400).json({ ok: false, error: 'No fields to update' });
@@ -567,9 +568,9 @@ export const orderController = {
   },
 
 
-  delete: async (req: Request, res: Response) => {
+  delete: async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
-    const shopId = (req as any).shopId;
+    const shopId = req.shopId;
 
     const connection = await pool.getConnection();
     try {

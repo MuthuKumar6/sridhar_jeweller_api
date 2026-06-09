@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
 import { genId } from '../utils/generateId';
 import pool from '../config/db';
+import { AuthRequest } from '../middleware/auth';
 
 export const alertController = {
-  getAll: async (req: Request, res: Response) => {
-    const shopId = (req as any).shopId;
+  getAll: async (req: AuthRequest, res: Response) => {
+    const shopId = req.shopId;
 
     try {
       const [data] = await pool.execute(
@@ -19,8 +20,8 @@ export const alertController = {
     }
   },
 
-  getUnread: async (req: Request, res: Response) => {
-    const shopId = (req as any).shopId;
+  getUnread: async (req: AuthRequest, res: Response) => {
+    const shopId = req.shopId;
 
     try {
       const [data] = await pool.execute(
@@ -35,9 +36,9 @@ export const alertController = {
     }
   },
 
-  markRead: async (req: Request, res: Response) => {
+  markRead: async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
-    const shopId = (req as any).shopId;
+    const shopId = req.shopId;
 
     const connection = await pool.getConnection();
 
@@ -65,8 +66,8 @@ export const alertController = {
     }
   },
 
-  markAllRead: async (req: Request, res: Response) => {
-    const shopId = (req as any).shopId;
+  markAllRead: async (req: AuthRequest, res: Response) => {
+    const shopId = req.shopId;
 
     const connection = await pool.getConnection();
 

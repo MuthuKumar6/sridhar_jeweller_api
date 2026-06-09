@@ -1,12 +1,13 @@
 import { Request, Response } from 'express';
 import { query, execute } from '../utils/db';
 import { genId } from '../utils/generateId';
+import { AuthRequest } from '../middleware/auth';
 
 export const productTypeController = {
   // Get all product types for current shop
-  getAll: async (req: Request, res: Response) => {
+  getAll: async (req: AuthRequest, res: Response) => {
     try {
-      const shopId = (req as any).shopId;
+      const shopId = req.shopId;
       const data = await query(
         `SELECT pt.*, p.name as productName, p.purity 
          FROM product_types pt
@@ -24,10 +25,10 @@ export const productTypeController = {
   },
 
   // Get single product type
-  getById: async (req: Request, res: Response) => {
+  getById: async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const shopId = (req as any).shopId;
+      const shopId = req.shopId;
 
       const [productType] = await query(
         `SELECT pt.*, p.name as productName, p.purity, p.current_rate 
@@ -48,9 +49,9 @@ export const productTypeController = {
   },
 
   // Create new product type
-  create: async (req: Request, res: Response) => {
+  create: async (req: AuthRequest, res: Response) => {
     try {
-      const shopId = (req as any).shopId;
+      const shopId = req.shopId;
       const id = genId();
 
       const {
@@ -101,10 +102,10 @@ export const productTypeController = {
   },
 
   // Update product type
-  update: async (req: Request, res: Response) => {
+  update: async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const shopId = (req as any).shopId;
+      const shopId = req.shopId;
 
       const {
         name, hasSubName, tagNo, subNames, huids, grossWeight, netWeight,
@@ -134,11 +135,11 @@ export const productTypeController = {
   },
 
   // Update stock (important for orders)
-  updateStock: async (req: Request, res: Response) => {
+  updateStock: async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { change } = req.body; // e.g., -2 or +5
-      const shopId = (req as any).shopId;
+      const shopId = req.shopId;
 
       if (typeof change !== 'number') {
         return res.status(400).json({ ok: false, error: 'Change must be a number' });
@@ -156,10 +157,10 @@ export const productTypeController = {
   },
 
   // Delete product type
-  delete: async (req: Request, res: Response) => {
+  delete: async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const shopId = (req as any).shopId;
+      const shopId = req.shopId;
 
       await execute(
         'DELETE FROM product_types WHERE id = ? AND shop_id = ?', 

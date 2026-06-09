@@ -3,8 +3,9 @@ import pool from '../config/db';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { genId } from '../utils/generateId';
+import { AuthRequest } from '../middleware/auth';
 
-export const signup = async (req: Request, res: Response) => {
+export const signup = async (req: AuthRequest, res: Response) => {
   try {
     console.log('Signup request body:', req.body);
 
@@ -150,7 +151,7 @@ export const signup = async (req: Request, res: Response) => {
   }
 };
 
-export const login = async (req: Request, res: Response) => {
+export const login = async (req: AuthRequest, res: Response) => {
   try {
     const { email, password } = req.body;
 

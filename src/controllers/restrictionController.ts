@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
 import { genId } from '../utils/generateId';
 import pool from '../config/db';
+import { AuthRequest } from '../middleware/auth';
 
 export const restrictionController = {
-  getAll: async (req: Request, res: Response) => {
-    const shopId = (req as any).shopId;
+  getAll: async (req: AuthRequest, res: Response) => {
+    const shopId = req.shopId;
 
     try {
       const [data] = await pool.execute(
@@ -19,8 +20,8 @@ export const restrictionController = {
     }
   },
 
-  create: async (req: Request, res: Response) => {
-    const shopId = (req as any).shopId;
+  create: async (req: AuthRequest, res: Response) => {
+    const shopId = req.shopId;
     const { customerId, productId, dailyGramLimit, isActive = true } = req.body;
 
     if (!customerId || !productId || dailyGramLimit === undefined) {
@@ -69,10 +70,10 @@ export const restrictionController = {
     }
   },
 
-  checkLimit: async (req: Request, res: Response) => {
+  checkLimit: async (req: AuthRequest, res: Response) => {
     try {
       const { customerId, productId, grams } = req.query;
-      const shopId = (req as any).shopId;
+      const shopId = req.shopId;
 
       if (!customerId || !productId || !grams) {
         return res.status(400).json({ 
@@ -123,9 +124,9 @@ export const restrictionController = {
     }
   },
 
-  update: async (req: Request, res: Response) => {
+  update: async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
-    const shopId = (req as any).shopId;
+    const shopId = req.shopId;
     const { isActive, dailyGramLimit } = req.body;
 
     const connection = await pool.getConnection();
@@ -156,9 +157,9 @@ export const restrictionController = {
     }
   },
 
-  delete: async (req: Request, res: Response) => {
+  delete: async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
-    const shopId = (req as any).shopId;
+    const shopId = req.shopId;
 
     const connection = await pool.getConnection();
 
