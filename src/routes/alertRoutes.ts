@@ -8,7 +8,7 @@ router.use(protect);
 router.get('/', alertController.getAll);
 router.get('/unread', alertController.getUnread);
 router.put('/mark-all-read', alertController.markAllRead);
-router.put('/:id/read', alertController.markRead);
+router.patch('/:id/read', alertController.markRead);
 
 
 export default router;

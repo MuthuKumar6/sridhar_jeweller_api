@@ -3,7 +3,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 
-
 dotenv.config();
 
 import authRoutes from './routes/authRoutes';
@@ -20,6 +19,7 @@ import { checkDBConnection } from './config/db';
 
 const app = express();
 
+// Security & middleware
 app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -35,44 +35,46 @@ app.use('/api/restrictions', restrictionRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/shop', shopRoutes);
 
-app.get("/", (req, res) => {
-  res.json({ ok: true, message: "Welcome to Sridhar Jewellers ERP Backend API" });
+// Health check / root route
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    ok: true,
+    message: 'Welcome to Sridhar Jewellers ERP Backend API',
+  });
 });
 
-// const PORT = process.env.PORT || 5000;
+// Global error handler
+app.use(
+  (err: any, req: Request, res: Response, next: NextFunction): void => {
+    console.error('Unhandled error:', err);
 
-// const startServer = async () => {
-//   const dbConnected = await checkDBConnection();
-//   if (!dbConnected) {
-//     console.error('❌ Server stopped due to database issue');
-//     process.exit(1);
-//   }
+    res.status(500).json({
+      ok: false,
+      error: 'Internal server error',
+    });
+  }
+);
 
-//   app.listen(PORT, () => {
-//     console.log(`🚀 Sridhar Jewellers ERP running on http://localhost:${PORT}`);
-//   });
-// };
+const PORT = Number(process.env.PORT) || 5000;
 
-// startServer();
+const startServer = async (): Promise<void> => {
+  try {
+    const dbConnected = await checkDBConnection();
 
-// Global error handler — catches any unhandled errors from async route handlers
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ ok: false, error: 'Internal server error' });
-});
+    if (!dbConnected) {
+      console.error('❌ Server stopped due to database issue');
+      process.exit(1);
+    }
 
-const PORT = process.env.PORT || 5000;
-
-const startServer = async () => {
-  const dbConnected = await checkDBConnection();
-  if (!dbConnected) {
-    console.error('❌ Server stopped due to database issue');
+    app.listen(PORT, () => {
+      console.log(
+        `🚀 Sridhar Jewellers ERP running on http://localhost:${PORT}`
+      );
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
-
-  app.listen(PORT, () => {
-    console.log(`🚀 Sridhar Jewellers ERP running on http://localhost:${PORT}`);
-  });
 };
 
 startServer();
