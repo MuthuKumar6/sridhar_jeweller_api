@@ -7,7 +7,7 @@ router.use(protect);
 
 router.get('/', restrictionController.getAll);
 router.post('/', restrictionController.create);
-router.post('/check-limit', restrictionController.checkLimit);
+router.post('/check', restrictionController.checkLimit);
 router.delete('/:id', restrictionController.delete);
 router.put('/:id', restrictionController.update);
 

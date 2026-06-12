@@ -181,7 +181,8 @@
 /*** version 3 */
 
 import { randomUUID } from 'crypto';
-import { PoolConnection } from 'mysql2/promise';
+import { Pool, PoolConnection } from 'mysql2/promise';
+import pool from '../config/db';
 
 // ─── genId ───────────────────────────────────────────────────────────────────
 // Uses crypto.randomUUID() — collision-proof, built into Node 18+
@@ -227,34 +228,44 @@ function buildShopCode(shopName: string): string {
  * Uses SELECT … FOR UPDATE so concurrent transactions queue up safely.
  */
 async function nextSequence(
-  connection: PoolConnection,
+  _ignored: PoolConnection | Pool,
   table: 'order_sequences' | 'bill_sequences',
   shopId: string,
   prefix: string,
   finYear: string,
 ): Promise<number> {
-  await connection.execute(
-    `INSERT IGNORE INTO ${table} (shop_id, prefix, fin_year, last_seq)
-     VALUES (?, ?, ?, 0)`,
-    [shopId, prefix, finYear],
-  );
+  // Get a single dedicated connection and do everything on it so INSERT and
+  // SELECT are guaranteed to be on the same connection / same session.
+  // We do NOT call beginTransaction — we want autocommit so the row is
+  // visible immediately and is NOT rolled back if the caller's order tx fails.
+  const conn = await pool.getConnection();
+  try {
+    await conn.query(
+      `INSERT INTO ${table} (shop_id, prefix, fin_year, last_seq)
+       VALUES (?, ?, ?, 1)
+       ON DUPLICATE KEY UPDATE last_seq = last_seq + 1`,
+      [shopId, prefix, finYear],
+    );
 
-  const [rows] = await connection.execute(
-    `SELECT last_seq FROM ${table}
-     WHERE shop_id = ? AND prefix = ? AND fin_year = ?
-     FOR UPDATE`,
-    [shopId, prefix, finYear],
-  ) as any[];
+    const [rows] = await conn.query(
+      `SELECT last_seq FROM ${table}
+       WHERE shop_id = ? AND prefix = ? AND fin_year = ?`,
+      [shopId, prefix, finYear],
+    ) as any[];
 
-  const next = (rows[0].last_seq as number) + 1;
+    if (!rows || rows.length === 0) {
+      throw new Error(`[nextSequence] Row missing — table=${table} prefix="${prefix}"`);
+    }
 
-  await connection.execute(
-    `UPDATE ${table} SET last_seq = ?
-     WHERE shop_id = ? AND prefix = ? AND fin_year = ?`,
-    [next, shopId, prefix, finYear],
-  );
-
-  return next;
+    return rows[0].last_seq as number;
+  } catch (err: any) {
+    if (err.code === 'ER_NO_SUCH_TABLE') {
+      throw new Error(`Table "${table}" missing. Run: mysql -u root -p jewel_erp < create_sequences.sql`);
+    }
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 // ─── genOrderNumber ───────────────────────────────────────────────────────────

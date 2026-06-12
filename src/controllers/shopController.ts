@@ -65,7 +65,7 @@ export const shopController = {
 
     try {
       const [shops] = await pool.execute(
-        'SELECT id, name, owner_name, phone, email, address, gstin, created_at FROM shops WHERE id = ?',
+        'SELECT id, shop_name, owner_name, phone, email, address, gstin, created_at FROM shops WHERE id = ?',
         [shopId]
       );
 
@@ -148,7 +148,7 @@ export const shopController = {
 
     try {
       const [shop] = await pool.execute(
-        'SELECT id, name, owner_name, phone, email, address, gstin FROM shops WHERE id = ?',
+        'SELECT id, shop_name, owner_name, phone, email, address, gstin FROM shops WHERE id = ?',
         [shopId]
       );
       res.json({ ok: true, data: shop });

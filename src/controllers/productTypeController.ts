@@ -256,9 +256,6 @@ export const productTypeController = {
     if (!name?.trim()) {
       return res.status(400).json({ ok: false, error: 'name is required' });
     }
-    if (typeof grossWeight !== 'number' || grossWeight <= 0) {
-      return res.status(400).json({ ok: false, error: 'grossWeight must be a positive number' });
-    }
     if (typeof netWeight !== 'number' || netWeight <= 0) {
       return res.status(400).json({ ok: false, error: 'netWeight must be a positive number' });
     }
