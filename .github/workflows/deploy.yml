@@ -60,8 +60,8 @@ jobs:
             test -f dist/server.js && echo "server.js EXISTS ✅" || (echo "server.js MISSING ❌" && exit 1)
 
             echo "♻️ Restarting app via cPanel UAPI..."
-            curl -s -u "$CPANEL_USER:$CPANEL_TOKEN" \
-              "https://$CPANEL_HOST:2083/execute/NodeJS/restart_app?app_name=sridhar_jeweller_api" \
+            curl -s -u "$USERNAME:$CPANEL_TOKEN" \
+              "https://$HOST:2083/execute/NodeJS/restart_app?app_name=sridhar_jeweller_api" \
               | grep -q '"status":1' && echo "App restarted via UAPI ✅" || echo "UAPI restart failed, falling back..."
 
             # Fallback: kill node process so Passenger cold-starts fresh
