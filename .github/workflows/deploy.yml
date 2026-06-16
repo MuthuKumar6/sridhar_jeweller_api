@@ -17,8 +17,9 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          port: 22
+          port: ${{ secrets.PORT }}
           timeout: 300s
+          envs: CPANEL_TOKEN,CPANEL_USER,CPANEL_HOST   # ✅ inject into SSH session
           script: |
             set -e
             echo "=================================="
@@ -60,31 +61,53 @@ jobs:
             test -f dist/server.js && echo "server.js EXISTS ✅" || (echo "server.js MISSING ❌" && exit 1)
 
             echo "♻️ Restarting app via cPanel UAPI..."
-            curl -s -u "$USERNAME:$CPANEL_TOKEN" \
-              "https://$HOST:2083/execute/NodeJS/restart_app?app_name=sridhar_jeweller_api" \
-              | grep -q '"status":1' && echo "App restarted via UAPI ✅" || echo "UAPI restart failed, falling back..."
+            RESTART=$(curl -s -u "$CPANEL_USER:$CPANEL_TOKEN" \
+              "https://$CPANEL_HOST:2083/execute/NodeJS/restart_app?app_name=sridhar_jeweller_api")
+            echo "UAPI Response: $RESTART"
+            echo "$RESTART" | grep -q '"status":1' \
+              && echo "App restarted via UAPI ✅" \
+              || echo "⚠️ UAPI restart uncertain, applying fallback..."
 
-            # Fallback: kill node process so Passenger cold-starts fresh
+            # Fallback: force kill so Passenger cold-starts fresh
             pkill -f "sridhar_jeweller_api" || true
-            sleep 2
 
-            # Also update restart.txt
             mkdir -p tmp
             date +%s > tmp/restart.txt
+
+            echo "⏳ Waiting for Passenger to boot..."
+            sleep 15
 
             echo "=================================="
             echo "🎉 DEPLOYMENT SUCCESSFUL"
             echo "=================================="
             date
+        env:
+          CPANEL_TOKEN: ${{ secrets.CPANEL_TOKEN }}
+          CPANEL_USER: ${{ secrets.CPANEL_USER }}
+          CPANEL_HOST: ${{ secrets.HOST }}          # ✅ reusing HOST — no new secret needed
 
       - name: Verify Deployment
         run: |
-          sleep 10
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://sridhar.moiaccount.in/api)
-          echo "API Response Code: $STATUS"
-          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
-            echo "✅ API is responding"
-          else
-            echo "❌ API may be down (status: $STATUS)"
-            exit 1
-          fi
+          echo "⏳ Waiting for app to fully boot..."
+          sleep 20
+
+          max_attempts=5
+          attempt=1
+
+          while [ $attempt -le $max_attempts ]; do
+            STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" \
+              https://sridhar.moiaccount.in/api || echo "000")
+            echo "Attempt $attempt/$max_attempts → HTTP $STATUS"
+
+            if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
+              echo "✅ API is live!"
+              exit 0
+            fi
+
+            echo "Not ready, retrying in 10s..."
+            sleep 10
+            attempt=$((attempt + 1))
+          done
+
+          echo "❌ API did not respond after $max_attempts attempts"
+          exit 1
