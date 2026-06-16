@@ -1,128 +1,12 @@
-# name: Deploy
-
-# on:
-#   push:
-#     branches:
-#       - main
-
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-
-#     steps:
-#       - name: SSH Deploy
-#         uses: appleboy/ssh-action@v1.0.3
-
-#         with:
-#           host: moiaccount.in
-#           username: moiaccou
-#           key: ${{ secrets.SSH_KEY }}
-#           port: 22
-
-#           script: |
-#             whoami
-#             pwd
-
-# -------------------------------- New Workflow --------------------------------
-# name: Deploy Backend
-
-# on:
-#   push:
-#     branches:
-#       - main
-
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-
-#     steps:
-#       - name: SSH Deploy
-#         uses: appleboy/ssh-action@v1.0.3
-
-#         with:
-#           host: ${{ secrets.HOST }}
-#           username: ${{ secrets.USERNAME }}
-#           key: ${{ secrets.SSH_KEY }}
-#           port: 22
-
-#           script: |
-#             cd ~/sridhar_jeweller_api
-
-#             echo "Before pull"
-#             git status
-
-#             git pull origin main
-
-#             echo "After pull"
-#             git log --oneline -5
-
-#             npm install
-
-#             npm run build
-
-#             touch tmp/restart.txt
-
-
-
-
-# name: Deploy Backend to cPanel (Production)
-
-# on:
-#   push:
-#     branches:
-#       - main
-
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-
-#     steps:
-#       - name: Checkout Code
-#         uses: actions/checkout@v4
-
-#       - name: Deploy via SSH
-#         uses: appleboy/ssh-action@v1.0.3
-#         with:
-#           host: ${{ secrets.HOST }}
-#           username: ${{ secrets.USERNAME }}
-#           key: ${{ secrets.SSH_KEY }}
-#           port: 22
-#           script: |
-#             echo "🚀 Starting Production Deployment..."
-
-#             cd ~/sridhar_jeweller_api
-
-#             git pull origin main
-
-#             source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
-
-#             rm -rf dist node_modules package-lock.json
-
-#             npm ci --production=false
-
-#             npm run build
-
-#             echo "✅ Build Successful"
-
-#             # Restart App
-#             touch /home/moiaccou/nodevenv/sridhar_jeweller_api/20/tmp/restart.txt
-
-#             echo "🎉 Deployment Completed!"
-
-
-
 name: Deploy Backend to cPanel (Production)
-
 on:
   push:
     branches:
       - main
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 8                  # Prevent infinite queuing
-
+    timeout-minutes: 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -136,34 +20,71 @@ jobs:
           port: 22
           timeout: 300s
           script: |
-            echo "🚀 Starting Deployment - $(date)"
+            set -e
+            echo "=================================="
+            echo "🚀 DEPLOYMENT STARTED"
+            echo "=================================="
+            date
 
-            # Go to project folder
-            cd ~/sridhar_jeweller_api
+            cd /home/moiaccou/sridhar_jeweller_api
 
-            # Safe git pull (prevents merge conflicts)
+            echo "📥 Updating source code..."
             git fetch origin
             git reset --hard origin/main
 
-            # Activate Node.js Virtual Environment
+            echo "📌 Current Commit:"
+            git rev-parse HEAD
+            git log --oneline -1
+
+            echo "⚙️ Activating Node Environment..."
             source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
 
-            echo "✅ Node Environment Activated"
+            echo "🧹 Cleaning previous build..."
+            rm -rf dist
+            rm -rf node_modules
 
-            # Clean old files
-            rm -rf dist node_modules package-lock.json
-
-            # Install Dependencies with fallback
             echo "📦 Installing dependencies..."
-            npm ci --production=false || npm install --production=false
+            npm ci || npm install
 
-            # Build Project
             echo "🔨 Building TypeScript..."
             npm run build
 
-            echo "✅ Build Completed Successfully"
+            echo "✅ Build completed"
+            echo "Build Time: $(date)" > dist/build-version.txt
+            echo "Commit: $(git rev-parse HEAD)" >> dist/build-version.txt
 
-            # Restart cPanel Node.js App
-            touch /home/moiaccou/nodevenv/sridhar_jeweller_api/20/tmp/restart.txt
+            echo "📂 Build output:"
+            ls -la dist/
 
-            echo "🎉 Deployment Completed Successfully at $(date)"
+            echo "🔍 Verifying server file..."
+            test -f dist/server.js && echo "server.js EXISTS ✅" || (echo "server.js MISSING ❌" && exit 1)
+
+            echo "♻️ Restarting app via cPanel UAPI..."
+            curl -s -u "$CPANEL_USER:$CPANEL_TOKEN" \
+              "https://$CPANEL_HOST:2083/execute/NodeJS/restart_app?app_name=sridhar_jeweller_api" \
+              | grep -q '"status":1' && echo "App restarted via UAPI ✅" || echo "UAPI restart failed, falling back..."
+
+            # Fallback: kill node process so Passenger cold-starts fresh
+            pkill -f "sridhar_jeweller_api" || true
+            sleep 2
+
+            # Also update restart.txt
+            mkdir -p tmp
+            date +%s > tmp/restart.txt
+
+            echo "=================================="
+            echo "🎉 DEPLOYMENT SUCCESSFUL"
+            echo "=================================="
+            date
+
+      - name: Verify Deployment
+        run: |
+          sleep 10
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://sridhar.moiaccount.in/api)
+          echo "API Response Code: $STATUS"
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
+            echo "✅ API is responding"
+          else
+            echo "❌ API may be down (status: $STATUS)"
+            exit 1
+          fi
