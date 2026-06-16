@@ -6,7 +6,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -19,7 +19,6 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.PORT }}
           timeout: 300s
-          envs: CPANEL_TOKEN,CPANEL_USER,CPANEL_HOST
           script: |
             set -e
             echo "=================================="
@@ -78,39 +77,27 @@ jobs:
               && echo "server.js EXISTS ✅" \
               || (echo "server.js MISSING ❌" && exit 1)
 
-            echo "♻️ Restarting app via cPanel UAPI..."
-            RESTART=$(curl -sk \
-              -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
-              "https://$CPANEL_HOST:2083/execute/NodeJS/restart_app?app_name=sridhar_jeweller_api" \
-              2>&1 | head -c 500)
-            echo "UAPI Response: $RESTART"
-            echo "$RESTART" | grep -q '"status":1' \
-              && echo "App restarted via UAPI ✅" \
-              || echo "⚠️ UAPI restart uncertain, applying fallback..."
-
-            # Fallback: force kill so Passenger cold-starts fresh
-            pkill -f "sridhar_jeweller_api" || true
-
-            # Update restart.txt
+            echo "♻️ Triggering Passenger restart..."
             mkdir -p tmp
             date +%s > tmp/restart.txt
+            echo "restart.txt updated: $(cat tmp/restart.txt)"
 
-            echo "⏳ Waiting for Passenger to boot (15s)..."
-            sleep 15
+            # Kill only node processes running dist/server.js (NOT the whole ssh session)
+            echo "🔪 Killing old Node process..."
+            pkill -f "dist/server.js" || echo "No existing process found (OK)"
+
+            echo "⏳ Waiting for Passenger to respawn (20s)..."
+            sleep 20
 
             echo "=================================="
             echo "🎉 DEPLOYMENT SUCCESSFUL"
             echo "=================================="
             date
-        env:
-          CPANEL_TOKEN: ${{ secrets.CPANEL_TOKEN }}
-          CPANEL_USER: ${{ secrets.CPANEL_USER }}
-          CPANEL_HOST: ${{ secrets.HOST }}
 
       - name: Verify Deployment
         run: |
-          echo "⏳ Giving app 20 more seconds to fully boot..."
-          sleep 20
+          echo "⏳ Giving app 15 more seconds to fully boot..."
+          sleep 15
 
           max_attempts=5
           attempt=1
