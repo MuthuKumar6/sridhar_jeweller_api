@@ -80,13 +80,9 @@ jobs:
             echo "♻️ Triggering Passenger restart..."
             mkdir -p tmp
             date +%s > tmp/restart.txt
-            echo "restart.txt updated: $(cat tmp/restart.txt)"
+            echo "restart.txt updated: $(cat tmp/restart.txt) ✅"
 
-            # Kill only node processes running dist/server.js (NOT the whole ssh session)
-            echo "🔪 Killing old Node process..."
-            pkill -f "dist/server.js" || echo "No existing process found (OK)"
-
-            echo "⏳ Waiting for Passenger to respawn (20s)..."
+            echo "⏳ Waiting for Passenger to pick up changes (20s)..."
             sleep 20
 
             echo "=================================="
