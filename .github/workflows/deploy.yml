@@ -79,7 +79,7 @@ jobs:
               || (echo "server.js MISSING ❌" && exit 1)
 
             echo "♻️ Restarting app via cPanel UAPI..."
-            RESTART=$(curl -s -u "$CPANEL_USER:$CPANEL_TOKEN" \
+            RESTART=$(curl -sk -u "$CPANEL_USER:$CPANEL_TOKEN" \
               "https://$CPANEL_HOST:2083/execute/NodeJS/restart_app?app_name=sridhar_jeweller_api")
             echo "UAPI Response: $RESTART"
             echo "$RESTART" | grep -q '"status":1' \
