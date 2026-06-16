@@ -19,7 +19,7 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.PORT }}
           timeout: 300s
-          envs: CPANEL_TOKEN,CPANEL_USER,CPANEL_HOST   # ✅ inject into SSH session
+          envs: CPANEL_TOKEN,CPANEL_USER,CPANEL_HOST
           script: |
             set -e
             echo "=================================="
@@ -40,17 +40,33 @@ jobs:
             echo "⚙️ Activating Node Environment..."
             source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
 
-            echo "🧹 Cleaning previous build..."
-            rm -rf dist
+            echo "Node Version: $(node -v)"
+            echo "NPM Version:  $(npm -v)"
+
+            echo "🧹 Cleaning node_modules only..."
             rm -rf node_modules
 
-            echo "📦 Installing dependencies..."
-            npm ci || npm install
+            echo "📦 Installing ALL dependencies (including devDependencies)..."
+            npm ci --include=dev || npm install
+
+            echo "💾 Backing up previous dist (safety net)..."
+            cp -r dist dist_backup 2>/dev/null || echo "No previous dist to backup"
+
+            echo "🧹 Removing old dist..."
+            rm -rf dist
 
             echo "🔨 Building TypeScript..."
-            npm run build
+            if npm run build; then
+              echo "✅ Build successful"
+              rm -rf dist_backup
+            else
+              echo "❌ Build FAILED — restoring previous dist..."
+              mv dist_backup dist 2>/dev/null || true
+              echo "Previous dist restored. Aborting deployment."
+              exit 1
+            fi
 
-            echo "✅ Build completed"
+            echo "📄 Creating build version file..."
             echo "Build Time: $(date)" > dist/build-version.txt
             echo "Commit: $(git rev-parse HEAD)" >> dist/build-version.txt
 
@@ -58,7 +74,9 @@ jobs:
             ls -la dist/
 
             echo "🔍 Verifying server file..."
-            test -f dist/server.js && echo "server.js EXISTS ✅" || (echo "server.js MISSING ❌" && exit 1)
+            test -f dist/server.js \
+              && echo "server.js EXISTS ✅" \
+              || (echo "server.js MISSING ❌" && exit 1)
 
             echo "♻️ Restarting app via cPanel UAPI..."
             RESTART=$(curl -s -u "$CPANEL_USER:$CPANEL_TOKEN" \
@@ -71,10 +89,11 @@ jobs:
             # Fallback: force kill so Passenger cold-starts fresh
             pkill -f "sridhar_jeweller_api" || true
 
+            # Update restart.txt
             mkdir -p tmp
             date +%s > tmp/restart.txt
 
-            echo "⏳ Waiting for Passenger to boot..."
+            echo "⏳ Waiting for Passenger to boot (15s)..."
             sleep 15
 
             echo "=================================="
@@ -84,11 +103,11 @@ jobs:
         env:
           CPANEL_TOKEN: ${{ secrets.CPANEL_TOKEN }}
           CPANEL_USER: ${{ secrets.CPANEL_USER }}
-          CPANEL_HOST: ${{ secrets.HOST }}          # ✅ reusing HOST — no new secret needed
+          CPANEL_HOST: ${{ secrets.HOST }}
 
       - name: Verify Deployment
         run: |
-          echo "⏳ Waiting for app to fully boot..."
+          echo "⏳ Giving app 20 more seconds to fully boot..."
           sleep 20
 
           max_attempts=5
@@ -104,7 +123,7 @@ jobs:
               exit 0
             fi
 
-            echo "Not ready, retrying in 10s..."
+            echo "Not ready yet, retrying in 10s..."
             sleep 10
             attempt=$((attempt + 1))
           done
