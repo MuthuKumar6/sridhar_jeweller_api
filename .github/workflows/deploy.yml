@@ -1,121 +1,336 @@
-name: Deploy Backend to cPanel (Production)
+# name: Deploy Backend to cPanel (Production)
+# on:
+#   push:
+#     branches:
+#       - main
+
+# permissions:
+#   contents: read 
+  
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 15
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
+
+#       - name: Deploy via SSH
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: ${{ secrets.USERNAME }}
+#           key: ${{ secrets.SSH_KEY }}
+#           port: ${{ secrets.PORT }}
+#           timeout: 300s
+#           script: |
+#             set -e
+#             echo "=================================="
+#             echo "🚀 DEPLOYMENT STARTED"
+#             echo "=================================="
+#             date
+
+#             cd /home/moiaccou/sridhar_jeweller_api
+
+#             echo "📥 Updating source code..."
+#             git fetch origin
+#             git reset --hard origin/main
+
+#             echo "📌 Current Commit:"
+#             git rev-parse HEAD
+#             git log --oneline -1
+
+#             echo "⚙️ Activating Node Environment..."
+#             source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
+
+#             echo "Node Version: $(node -v)"
+#             echo "NPM Version:  $(npm -v)"
+
+#             echo "🧹 Cleaning node_modules only..."
+#             rm -rf node_modules
+
+#             echo "📦 Installing ALL dependencies (including devDependencies)..."
+#             npm ci --include=dev || npm install
+
+#             echo "💾 Backing up previous dist (safety net)..."
+#             cp -r dist dist_backup 2>/dev/null || echo "No previous dist to backup"
+
+#             echo "🧹 Removing old dist..."
+#             rm -rf dist
+
+#             echo "🔨 Building TypeScript..."
+#             if npm run build; then
+#               echo "✅ Build successful"
+#               rm -rf dist_backup
+#             else
+#               echo "❌ Build FAILED — restoring previous dist..."
+#               mv dist_backup dist 2>/dev/null || true
+#               echo "Previous dist restored. Aborting deployment."
+#               exit 1
+#             fi
+
+#             echo "📄 Creating build version file..."
+#             echo "Build Time: $(date)" > dist/build-version.txt
+#             echo "Commit: $(git rev-parse HEAD)" >> dist/build-version.txt
+
+#             echo "📂 Build output:"
+#             ls -la dist/
+
+#             echo "🔍 Verifying server file..."
+#             test -f dist/server.js \
+#               && echo "server.js EXISTS ✅" \
+#               || (echo "server.js MISSING ❌" && exit 1)
+
+#             echo "♻️ Triggering Passenger restart..."
+#             mkdir -p tmp
+#             date +%s > tmp/restart.txt
+#             echo "restart.txt updated: $(cat tmp/restart.txt) ✅"
+
+#             echo "⏳ Waiting for Passenger to pick up changes (20s)..."
+#             sleep 20
+
+#             echo "=================================="
+#             echo "🎉 DEPLOYMENT SUCCESSFUL"
+#             echo "=================================="
+#             date
+
+#       - name: Verify Deployment
+#         run: |
+#           echo "⏳ Giving app 15 more seconds to fully boot..."
+#           sleep 15
+
+#           max_attempts=5
+#           attempt=1
+
+#           while [ $attempt -le $max_attempts ]; do
+#             STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" \
+#               https://sridhar.moiaccount.in/api || echo "000")
+#             echo "Attempt $attempt/$max_attempts → HTTP $STATUS"
+
+#             if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
+#               echo "✅ API is live!"
+#               exit 0
+#             fi
+
+#             echo "Not ready yet, retrying in 10s..."
+#             sleep 10
+#             attempt=$((attempt + 1))
+#           done
+
+#           echo "❌ API did not respond after $max_attempts attempts"
+#           exit 1
+
+
+
+name: High-Level CI/CD Pipeline
+
 on:
   push:
     branches:
+      - main      # Triggers Production deployment
+      - staging   # Triggers Staging deployment
+  pull_request:
+    branches:
       - main
+      - staging
 
-permissions:
-  contents: read 
-  
+env:
+  NODE_VERSION: '20'
+
 jobs:
-  deploy:
+  # ==========================================
+  # 1. CI: Lint, Test, and Build Validation
+  # ==========================================
+  ci:
+    name: CI Validation
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Deploy via SSH
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Linter (Optional)
+        run: npm run lint --if-present
+
+      - name: Run Tests (Optional)
+        run: npm test --if-present
+
+      - name: Build Application
+        run: npm run build
+
+      - name: Verify Build Output
+        run: test -f dist/server.js || exit 1
+
+  # ==========================================
+  # 2. CD: Deploy to Staging or Production
+  # ==========================================
+  cd:
+    name: Deploy to ${{ github.ref_name == 'main' && 'Production' || 'Staging' }}
+    needs: ci
+    if: github.event_name == 'push' 
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install All Dependencies
+        run: npm ci
+
+      - name: Build Application
+        run: npm run build
+
+      - name: Prune Dev Dependencies
+        run: npm prune --production
+
+      - name: Determine Deployment Paths
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "DEPLOY_PATH=/home/moiaccou/sridhar_jeweller_api" >> $GITHUB_ENV
+            echo "BACKUP_PREFIX=prod_backup" >> $GITHUB_ENV
+            echo "APP_DOMAIN=sridhar.moiaccount.in" >> $GITHUB_ENV
+          else
+            echo "DEPLOY_PATH=/home/moiaccou/staging_sridhar_jeweller_api" >> $GITHUB_ENV
+            echo "BACKUP_PREFIX=stg_backup" >> $GITHUB_ENV
+            echo "APP_DOMAIN=staging.sridhar.moiaccount.in" >> $GITHUB_ENV 
+          fi
+
+      - name: Backup Current Deployment (Safety Net)
+        id: backup
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.PORT }}
-          timeout: 300s
+          script: |
+            BACKUP_DIR="${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_$(date +%s)"
+            if [ -d "${{ env.DEPLOY_PATH }}/dist" ]; then
+              echo "📦 Creating full backup at $BACKUP_DIR..."
+              cp -a ${{ env.DEPLOY_PATH }} $BACKUP_DIR
+              echo "backup_dir=$BACKUP_DIR" >> $GITHUB_OUTPUT
+            else
+              echo "No existing deployment to backup."
+              echo "backup_dir=" >> $GITHUB_OUTPUT
+            fi
+
+      - name: Setup SSH Agent for Rsync
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Deploy Artifacts via Rsync
+        run: |
+          rsync -avz --delete --exclude='.git' --exclude='.env' \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.USERNAME }}@${{ secrets.HOST }}:${{ env.DEPLOY_PATH }}/
+
+      # =====================================================================
+      # UPDATED STEP: Triple-Layer Restart & Localized Health Check
+      # =====================================================================
+      - name: Force Restart Node Service & Verify Health
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
           script: |
             set -e
-            echo "=================================="
-            echo "🚀 DEPLOYMENT STARTED"
-            echo "=================================="
-            date
+            echo "🚀 Deployment files synced successfully."
+            
+            # Activate Node environment if using cPanel Node.js app
+            if [ -f /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate ]; then
+              source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
+            fi
 
-            cd /home/moiaccou/sridhar_jeweller_api
+            cd ${{ env.DEPLOY_PATH }}
+            APP_NAME=$(basename ${{ env.DEPLOY_PATH }})
+            
+            echo "=========================================="
+            echo "♻️ EXECUTING TRIPLE-LAYER SERVICE RESTART"
+            echo "=========================================="
 
-            echo "📥 Updating source code..."
-            git fetch origin
-            git reset --hard origin/main
+            # LAYER 1: Standard Passenger Restart File
+            echo "1️⃣ Updating Passenger restart.txt..."
+            mkdir -p tmp
+            chmod 755 tmp
+            # Passenger strictly requires the timestamp to be NEWER than the last one
+            date +%s > tmp/restart.txt
+            touch -m tmp/restart.txt
 
-            echo "📌 Current Commit:"
-            git rev-parse HEAD
-            git log --oneline -1
+            # LAYER 2: cPanel Native UAPI (The most reliable method for cPanel)
+            echo "2️⃣ Triggering cPanel UAPI Node.js restart..."
+            # This explicitly tells the cPanel backend to restart the specific app
+            uapi NodeJsApp restart app_root=$APP_NAME || echo "⚠️ UAPI restart skipped/failed (relying on Layer 1 & 3)"
 
-            echo "⚙️ Activating Node Environment..."
-            source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
+            # LAYER 3: The "Nuke" Fallback (Kills the cached Passenger process)
+            echo "3️⃣ Killing cached Passenger Node processes (Fallback)..."
+            # If Passenger is stubbornly caching the old code, this forces it to respawn
+            pkill -f "Passenger NodeApp: ${{ env.DEPLOY_PATH }}" || echo "No cached processes found."
+            
+            echo "⏳ Waiting 15 seconds for application to fully boot..."
+            sleep 15
 
-            echo "Node Version: $(node -v)"
-            echo "NPM Version:  $(npm -v)"
+            echo "=========================================="
+            echo "🔍 RUNNING LOCALIZED HEALTH CHECK"
+            echo "=========================================="
+            MAX_ATTEMPTS=5
+            ATTEMPT=1
+            HEALTH_OK=false
+            
+            while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+              # Bypasses Cloudflare/CDN by forcing local resolution
+              STATUS=$(curl -s --max-time 10 --resolve ${{ env.APP_DOMAIN }}:443:127.0.0.1 -o /dev/null -w "%{http_code}" https://${{ env.APP_DOMAIN }}/api || echo "000")
+              
+              if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
+                echo "✅ Health check passed! (HTTP $STATUS)"
+                HEALTH_OK=true
+                break
+              fi
+              
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS failed (HTTP $STATUS). Retrying in 10s..."
+              sleep 10
+              ATTEMPT=$((ATTEMPT + 1))
+            done
 
-            echo "🧹 Cleaning node_modules only..."
-            rm -rf node_modules
-
-            echo "📦 Installing ALL dependencies (including devDependencies)..."
-            npm ci --include=dev || npm install
-
-            echo "💾 Backing up previous dist (safety net)..."
-            cp -r dist dist_backup 2>/dev/null || echo "No previous dist to backup"
-
-            echo "🧹 Removing old dist..."
-            rm -rf dist
-
-            echo "🔨 Building TypeScript..."
-            if npm run build; then
-              echo "✅ Build successful"
-              rm -rf dist_backup
-            else
-              echo "❌ Build FAILED — restoring previous dist..."
-              mv dist_backup dist 2>/dev/null || true
-              echo "Previous dist restored. Aborting deployment."
+            # ==========================================
+            # AUTOMATED ROLLBACK MECHANISM
+            # ==========================================
+            if [ "$HEALTH_OK" = false ]; then
+              echo "❌ Health check failed after $MAX_ATTEMPTS attempts. Initiating ROLLBACK..."
+              
+              if [ -n "${{ steps.backup.outputs.backup_dir }}" ]; then
+                echo "Restoring from ${{ steps.backup.outputs.backup_dir }}..."
+                rsync -a --delete ${{ steps.backup.outputs.backup_dir }}/ ${{ env.DEPLOY_PATH }}/
+                rm -rf ${{ steps.backup.outputs.backup_dir }}
+                
+                echo "Restarting services after rollback..."
+                date +%s > tmp/restart.txt
+                uapi NodeJsApp restart app_root=$APP_NAME || true
+                pkill -f "Passenger NodeApp: ${{ env.DEPLOY_PATH }}" || true
+                sleep 10
+              else
+                echo "⚠️ No backup found to restore!"
+              fi
+              
               exit 1
             fi
-
-            echo "📄 Creating build version file..."
-            echo "Build Time: $(date)" > dist/build-version.txt
-            echo "Commit: $(git rev-parse HEAD)" >> dist/build-version.txt
-
-            echo "📂 Build output:"
-            ls -la dist/
-
-            echo "🔍 Verifying server file..."
-            test -f dist/server.js \
-              && echo "server.js EXISTS ✅" \
-              || (echo "server.js MISSING ❌" && exit 1)
-
-            echo "♻️ Triggering Passenger restart..."
-            mkdir -p tmp
-            date +%s > tmp/restart.txt
-            echo "restart.txt updated: $(cat tmp/restart.txt) ✅"
-
-            echo "⏳ Waiting for Passenger to pick up changes (20s)..."
-            sleep 20
-
-            echo "=================================="
-            echo "🎉 DEPLOYMENT SUCCESSFUL"
-            echo "=================================="
-            date
-
-      - name: Verify Deployment
-        run: |
-          echo "⏳ Giving app 15 more seconds to fully boot..."
-          sleep 15
-
-          max_attempts=5
-          attempt=1
-
-          while [ $attempt -le $max_attempts ]; do
-            STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" \
-              https://sridhar.moiaccount.in/api || echo "000")
-            echo "Attempt $attempt/$max_attempts → HTTP $STATUS"
-
-            if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
-              echo "✅ API is live!"
-              exit 0
-            fi
-
-            echo "Not ready yet, retrying in 10s..."
-            sleep 10
-            attempt=$((attempt + 1))
-          done
-
-          echo "❌ API did not respond after $max_attempts attempts"
-          exit 1
+            
+            # Cleanup old backups if successful (keep only the last 2)
+            ls -td ${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_* 2>/dev/null | tail -n +3 | xargs -r rm -rf
+            
+            echo "🎉 Deployment to ${{ github.ref_name }} completed successfully!"

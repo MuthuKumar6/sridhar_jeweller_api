@@ -7,8 +7,6 @@ import { AuthRequest } from '../middleware/auth';
 
 export const signup = async (req: AuthRequest, res: Response) => {
   try {
-    console.log('Signup request body:', req.body);
-
     const { shopName, ownerName, email, phone, password } = req.body;
 
     // ==================== VALIDATIONS ====================
