@@ -196,7 +196,8 @@ jobs:
         run: npm run build
 
       - name: Prune Dev Dependencies
-        run: npm prune --production
+        # Updated to modern syntax to remove the npm warning
+        run: npm prune --omit=dev
 
       - name: Determine Deployment Paths
         run: |
@@ -210,22 +211,28 @@ jobs:
             echo "APP_DOMAIN=staging.sridhar.moiaccount.in" >> $GITHUB_ENV 
           fi
 
+      # =====================================================================
+      # FIX: Removed $GITHUB_OUTPUT and switched to a static '_latest' name
+      # =====================================================================
       - name: Backup Current Deployment (Safety Net)
-        id: backup
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            BACKUP_DIR="${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_$(date +%s)"
+            # Use a fixed '_latest' suffix instead of a dynamic timestamp.
+            # This avoids the need to pass variables back from the remote server to GitHub Actions.
+            BACKUP_DIR="${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_latest"
+            
+            echo "📦 Creating full backup at $BACKUP_DIR..."
+            rm -rf "$BACKUP_DIR"
+            
             if [ -d "${{ env.DEPLOY_PATH }}/dist" ]; then
-              echo "📦 Creating full backup at $BACKUP_DIR..."
-              cp -a ${{ env.DEPLOY_PATH }} $BACKUP_DIR
-              echo "backup_dir=$BACKUP_DIR" >> $GITHUB_OUTPUT
+              cp -a ${{ env.DEPLOY_PATH }} "$BACKUP_DIR"
+              echo "✅ Backup created successfully."
             else
-              echo "No existing deployment to backup."
-              echo "backup_dir=" >> $GITHUB_OUTPUT
+              echo "⚠️ No existing 'dist' folder found. Skipping backup."
             fi
 
       - name: Setup SSH Agent for Rsync
@@ -240,7 +247,7 @@ jobs:
             ./ ${{ secrets.USERNAME }}@${{ secrets.HOST }}:${{ env.DEPLOY_PATH }}/
 
       # =====================================================================
-      # UPDATED STEP: Triple-Layer Restart & Localized Health Check
+      # Triple-Layer Restart & Localized Health Check
       # =====================================================================
       - name: Force Restart Node Service & Verify Health
         uses: appleboy/ssh-action@v1.0.3
@@ -252,14 +259,14 @@ jobs:
             set -e
             echo "🚀 Deployment files synced successfully."
             
-            # Activate Node environment if using cPanel Node.js app
-            if [ -f /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate ]; then
-              source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
-            fi
-
             cd ${{ env.DEPLOY_PATH }}
             APP_NAME=$(basename ${{ env.DEPLOY_PATH }})
             
+            # FIX: Made the virtual environment path dynamic based on the app name
+            if [ -f /home/moiaccou/nodevenv/$APP_NAME/20/bin/activate ]; then
+              source /home/moiaccou/nodevenv/$APP_NAME/20/bin/activate
+            fi
+
             echo "=========================================="
             echo "♻️ EXECUTING TRIPLE-LAYER SERVICE RESTART"
             echo "=========================================="
@@ -268,18 +275,15 @@ jobs:
             echo "1️⃣ Updating Passenger restart.txt..."
             mkdir -p tmp
             chmod 755 tmp
-            # Passenger strictly requires the timestamp to be NEWER than the last one
             date +%s > tmp/restart.txt
             touch -m tmp/restart.txt
 
-            # LAYER 2: cPanel Native UAPI (The most reliable method for cPanel)
+            # LAYER 2: cPanel Native UAPI
             echo "2️⃣ Triggering cPanel UAPI Node.js restart..."
-            # This explicitly tells the cPanel backend to restart the specific app
             uapi NodeJsApp restart app_root=$APP_NAME || echo "⚠️ UAPI restart skipped/failed (relying on Layer 1 & 3)"
 
-            # LAYER 3: The "Nuke" Fallback (Kills the cached Passenger process)
+            # LAYER 3: The "Nuke" Fallback
             echo "3️⃣ Killing cached Passenger Node processes (Fallback)..."
-            # If Passenger is stubbornly caching the old code, this forces it to respawn
             pkill -f "Passenger NodeApp: ${{ env.DEPLOY_PATH }}" || echo "No cached processes found."
             
             echo "⏳ Waiting 15 seconds for application to fully boot..."
@@ -293,7 +297,6 @@ jobs:
             HEALTH_OK=false
             
             while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-              # Bypasses Cloudflare/CDN by forcing local resolution
               STATUS=$(curl -s --max-time 10 --resolve ${{ env.APP_DOMAIN }}:443:127.0.0.1 -o /dev/null -w "%{http_code}" https://${{ env.APP_DOMAIN }}/api || echo "000")
               
               if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
@@ -313,10 +316,13 @@ jobs:
             if [ "$HEALTH_OK" = false ]; then
               echo "❌ Health check failed after $MAX_ATTEMPTS attempts. Initiating ROLLBACK..."
               
-              if [ -n "${{ steps.backup.outputs.backup_dir }}" ]; then
-                echo "Restoring from ${{ steps.backup.outputs.backup_dir }}..."
-                rsync -a --delete ${{ steps.backup.outputs.backup_dir }}/ ${{ env.DEPLOY_PATH }}/
-                rm -rf ${{ steps.backup.outputs.backup_dir }}
+              # Reference the same fixed '_latest' backup directory
+              BACKUP_DIR="${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_latest"
+              
+              if [ -d "$BACKUP_DIR" ]; then
+                echo "Restoring from $BACKUP_DIR..."
+                rsync -a --delete "$BACKUP_DIR"/ ${{ env.DEPLOY_PATH }}/
+                rm -rf "$BACKUP_DIR"
                 
                 echo "Restarting services after rollback..."
                 date +%s > tmp/restart.txt
@@ -330,7 +336,7 @@ jobs:
               exit 1
             fi
             
-            # Cleanup old backups if successful (keep only the last 2)
-            ls -td ${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_* 2>/dev/null | tail -n +3 | xargs -r rm -rf
+            # Cleanup any old timestamped backups from previous pipeline runs
+            ls -td ${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_[0-9]* 2>/dev/null | xargs -r rm -rf
             
             echo "🎉 Deployment to ${{ github.ref_name }} completed successfully!"
