@@ -237,7 +237,7 @@ export const productTypeController = {
       tagNo,
       subNames = [],
       huids = [],
-      grossWeight,
+      grossWeight= 0,
       netWeight,
       stoneWeight = 0,
       wastagePercentage = 0,

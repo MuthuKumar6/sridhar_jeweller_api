@@ -464,6 +464,7 @@ export const customerController = {
   update: async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const shopId = req.shopId;
+    console.log('Updating customer with ID:', id, 'for shop ID:', shopId);
     if (!shopId) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
     const { name, phone, email, address, gstin, dailyGramLimit } = req.body;
