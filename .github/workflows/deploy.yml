@@ -20,6 +20,8 @@ jobs:
   ci:
     name: CI Validation
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # only needs to read the repo
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
