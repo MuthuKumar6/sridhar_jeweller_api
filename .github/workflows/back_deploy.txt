@@ -1,3 +1,127 @@
+# name: Deploy Backend to cPanel (Production)
+# on:
+#   push:
+#     branches:
+#       - main
+
+# permissions:
+#   contents: read 
+  
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 15
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
+
+#       - name: Deploy via SSH
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: ${{ secrets.USERNAME }}
+#           key: ${{ secrets.SSH_KEY }}
+#           port: ${{ secrets.PORT }}
+#           timeout: 300s
+#           script: |
+#             set -e
+#             echo "=================================="
+#             echo "🚀 DEPLOYMENT STARTED"
+#             echo "=================================="
+#             date
+
+#             cd /home/moiaccou/sridhar_jeweller_api
+
+#             echo "📥 Updating source code..."
+#             git fetch origin
+#             git reset --hard origin/main
+
+#             echo "📌 Current Commit:"
+#             git rev-parse HEAD
+#             git log --oneline -1
+
+#             echo "⚙️ Activating Node Environment..."
+#             source /home/moiaccou/nodevenv/sridhar_jeweller_api/20/bin/activate
+
+#             echo "Node Version: $(node -v)"
+#             echo "NPM Version:  $(npm -v)"
+
+#             echo "🧹 Cleaning node_modules only..."
+#             rm -rf node_modules
+
+#             echo "📦 Installing ALL dependencies (including devDependencies)..."
+#             npm ci --include=dev || npm install
+
+#             echo "💾 Backing up previous dist (safety net)..."
+#             cp -r dist dist_backup 2>/dev/null || echo "No previous dist to backup"
+
+#             echo "🧹 Removing old dist..."
+#             rm -rf dist
+
+#             echo "🔨 Building TypeScript..."
+#             if npm run build; then
+#               echo "✅ Build successful"
+#               rm -rf dist_backup
+#             else
+#               echo "❌ Build FAILED — restoring previous dist..."
+#               mv dist_backup dist 2>/dev/null || true
+#               echo "Previous dist restored. Aborting deployment."
+#               exit 1
+#             fi
+
+#             echo "📄 Creating build version file..."
+#             echo "Build Time: $(date)" > dist/build-version.txt
+#             echo "Commit: $(git rev-parse HEAD)" >> dist/build-version.txt
+
+#             echo "📂 Build output:"
+#             ls -la dist/
+
+#             echo "🔍 Verifying server file..."
+#             test -f dist/server.js \
+#               && echo "server.js EXISTS ✅" \
+#               || (echo "server.js MISSING ❌" && exit 1)
+
+#             echo "♻️ Triggering Passenger restart..."
+#             mkdir -p tmp
+#             date +%s > tmp/restart.txt
+#             echo "restart.txt updated: $(cat tmp/restart.txt) ✅"
+
+#             echo "⏳ Waiting for Passenger to pick up changes (20s)..."
+#             sleep 20
+
+#             echo "=================================="
+#             echo "🎉 DEPLOYMENT SUCCESSFUL"
+#             echo "=================================="
+#             date
+
+#       - name: Verify Deployment
+#         run: |
+#           echo "⏳ Giving app 15 more seconds to fully boot..."
+#           sleep 15
+
+#           max_attempts=5
+#           attempt=1
+
+#           while [ $attempt -le $max_attempts ]; do
+#             STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" \
+#               https://sridhar.moiaccount.in/api || echo "000")
+#             echo "Attempt $attempt/$max_attempts → HTTP $STATUS"
+
+#             if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
+#               echo "✅ API is live!"
+#               exit 0
+#             fi
+
+#             echo "Not ready yet, retrying in 10s..."
+#             sleep 10
+#             attempt=$((attempt + 1))
+#           done
+
+#           echo "❌ API did not respond after $max_attempts attempts"
+#           exit 1
+
+
+
 name: High-Level CI/CD Pipeline
 
 on:
@@ -51,10 +175,10 @@ jobs:
   cd:
     name: Deploy to ${{ github.ref_name == 'main' && 'Production' || 'Staging' }}
     needs: ci
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' 
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
-
+    
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -83,7 +207,7 @@ jobs:
           else
             echo "DEPLOY_PATH=/home/moiaccou/staging_sridhar_jeweller_api" >> $GITHUB_ENV
             echo "BACKUP_PREFIX=stg_backup" >> $GITHUB_ENV
-            echo "APP_DOMAIN=staging.sridhar.moiaccount.in" >> $GITHUB_ENV
+            echo "APP_DOMAIN=staging.sridhar.moiaccount.in" >> $GITHUB_ENV 
           fi
 
       - name: Backup Current Deployment (Safety Net)
@@ -103,18 +227,16 @@ jobs:
               echo "⚠️ No existing 'dist' folder found. Skipping backup."
             fi
 
+      - name: Setup SSH Agent for Rsync
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
       - name: Deploy Artifacts via Rsync
         run: |
-          # Write key to temp file — avoids ssh-agent entirely
-          KEY_FILE=$(mktemp)
-          echo "${{ secrets.SSH_KEY }}" > "$KEY_FILE"
-          chmod 600 "$KEY_FILE"
-
           rsync -avz --delete --exclude='.git' --exclude='.env' \
-            -e "ssh -o StrictHostKeyChecking=no -i $KEY_FILE" \
+            -e "ssh -o StrictHostKeyChecking=no" \
             ./ ${{ secrets.USERNAME }}@${{ secrets.HOST }}:${{ env.DEPLOY_PATH }}/
-
-          rm -f "$KEY_FILE"
 
       # =====================================================================
       # FIX: Replaced dangerous pkill and broken uapi with safe alternatives
@@ -128,10 +250,10 @@ jobs:
           script: |
             set -e
             echo "🚀 Deployment files synced successfully."
-
+            
             cd ${{ env.DEPLOY_PATH }}
             APP_NAME=$(basename ${{ env.DEPLOY_PATH }})
-
+            
             # Activate Node environment if using cPanel Node.js app
             if [ -f /home/moiaccou/nodevenv/$APP_NAME/20/bin/activate ]; then
               source /home/moiaccou/nodevenv/$APP_NAME/20/bin/activate
@@ -163,7 +285,7 @@ jobs:
             else
               echo "No cached processes found."
             fi
-
+            
             echo "⏳ Waiting 15 seconds for application to fully boot..."
             sleep 15
 
@@ -173,16 +295,16 @@ jobs:
             MAX_ATTEMPTS=5
             ATTEMPT=1
             HEALTH_OK=false
-
+            
             while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
               STATUS=$(curl -s --max-time 10 --resolve ${{ env.APP_DOMAIN }}:443:127.0.0.1 -o /dev/null -w "%{http_code}" https://${{ env.APP_DOMAIN }}/api || echo "000")
-
+              
               if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
                 echo "✅ Health check passed! (HTTP $STATUS)"
                 HEALTH_OK=true
                 break
               fi
-
+              
               echo "Attempt $ATTEMPT/$MAX_ATTEMPTS failed (HTTP $STATUS). Retrying in 10s..."
               sleep 10
               ATTEMPT=$((ATTEMPT + 1))
@@ -193,18 +315,18 @@ jobs:
             # ==========================================
             if [ "$HEALTH_OK" = false ]; then
               echo "❌ Health check failed after $MAX_ATTEMPTS attempts. Initiating ROLLBACK..."
-
+              
               BACKUP_DIR="${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_latest"
-
+              
               if [ -d "$BACKUP_DIR" ]; then
                 echo "Restoring from $BACKUP_DIR..."
                 rsync -a --delete "$BACKUP_DIR"/ ${{ env.DEPLOY_PATH }}/
                 rm -rf "$BACKUP_DIR"
-
+                
                 echo "Restarting services after rollback..."
                 date +%s > tmp/restart.txt
                 touch -m tmp/restart.txt
-
+                
                 # Safely kill processes again using the /proc trick
                 PIDS=$(ls -l /proc/*/cwd 2>/dev/null | grep "${{ env.DEPLOY_PATH }}" | awk -F'/' '{print $3}' || true)
                 if [ -n "$PIDS" ]; then
@@ -214,11 +336,11 @@ jobs:
               else
                 echo "⚠️ No backup found to restore!"
               fi
-
+              
               exit 1
             fi
-
+            
             # Cleanup any old timestamped backups from previous pipeline runs
             ls -td ${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_[0-9]* 2>/dev/null | xargs -r rm -rf
-
+            
             echo "🎉 Deployment to ${{ github.ref_name }} completed successfully!"
