@@ -55,6 +55,8 @@ jobs:
     needs: ci
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # only needs to read the repo
     environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
 
     steps:
