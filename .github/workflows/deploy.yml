@@ -3,8 +3,8 @@ name: High-Level CI/CD Pipeline
 on:
   push:
     branches:
-      - main      # Triggers Production deployment
-      - staging   # Triggers Staging deployment
+      - main
+      - staging
   pull_request:
     branches:
       - main
@@ -105,7 +105,6 @@ jobs:
 
       - name: Deploy Artifacts via Rsync
         run: |
-          # Write key to temp file — avoids ssh-agent entirely
           KEY_FILE=$(mktemp)
           echo "${{ secrets.SSH_KEY }}" > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
@@ -116,9 +115,6 @@ jobs:
 
           rm -f "$KEY_FILE"
 
-      # =====================================================================
-      # FIX: Replaced dangerous pkill and broken uapi with safe alternatives
-      # =====================================================================
       - name: Force Restart Node Service & Verify Health
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -150,22 +146,34 @@ jobs:
 
             # LAYER 2: Passenger CLI Restart (Official method)
             echo "2️⃣ Attempting passenger-config restart..."
-            passenger-config restart-app ${{ env.DEPLOY_PATH }} || echo "passenger-config not found, relying on Layer 3."
+            passenger-config restart-app ${{ env.DEPLOY_PATH }} 2>/dev/null || echo "passenger-config not found, relying on Layer 3."
 
-            # LAYER 3: Safely kill cached Node processes
+            # LAYER 3: Safely kill only Node processes in the app directory
+            # FIX: Filter by exe name (node) AND cwd match, exclude current PID and non-numeric entries
             echo "3️⃣ Killing cached Node processes (Fallback)..."
-            # FIX: We use /proc/*/cwd to find processes running in the app directory.
-            # This is MUCH safer than pkill -f, which was accidentally killing the SSH session!
-            PIDS=$(ls -l /proc/*/cwd 2>/dev/null | grep "${{ env.DEPLOY_PATH }}" | awk -F'/' '{print $3}' || true)
+            CURRENT_PID=$$
+            PIDS=""
+            for pid_cwd in $(ls -l /proc/*/cwd 2>/dev/null | grep "${{ env.DEPLOY_PATH }}" | awk '{print $NF}' | grep -oP '/proc/\K[0-9]+'); do
+              # Skip current process
+              if [ "$pid_cwd" = "$CURRENT_PID" ]; then
+                continue
+              fi
+              # Only kill if the exe is actually node
+              EXE=$(readlink /proc/$pid_cwd/exe 2>/dev/null || true)
+              if echo "$EXE" | grep -q "node"; then
+                PIDS="$PIDS $pid_cwd"
+              fi
+            done
+
             if [ -n "$PIDS" ]; then
-              echo "Found cached processes: $PIDS. Killing them..."
+              echo "Found Node processes to kill:$PIDS"
               kill -9 $PIDS || true
             else
-              echo "No cached processes found."
+              echo "No cached Node processes found."
             fi
 
-            echo "⏳ Waiting 15 seconds for application to fully boot..."
-            sleep 15
+            echo "⏳ Waiting 20 seconds for application to fully boot..."
+            sleep 20
 
             echo "=========================================="
             echo "🔍 RUNNING LOCALIZED HEALTH CHECK"
@@ -205,8 +213,18 @@ jobs:
                 date +%s > tmp/restart.txt
                 touch -m tmp/restart.txt
 
-                # Safely kill processes again using the /proc trick
-                PIDS=$(ls -l /proc/*/cwd 2>/dev/null | grep "${{ env.DEPLOY_PATH }}" | awk -F'/' '{print $3}' || true)
+                # Same safe kill for rollback
+                CURRENT_PID=$$
+                PIDS=""
+                for pid_cwd in $(ls -l /proc/*/cwd 2>/dev/null | grep "${{ env.DEPLOY_PATH }}" | awk '{print $NF}' | grep -oP '/proc/\K[0-9]+'); do
+                  if [ "$pid_cwd" = "$CURRENT_PID" ]; then
+                    continue
+                  fi
+                  EXE=$(readlink /proc/$pid_cwd/exe 2>/dev/null || true)
+                  if echo "$EXE" | grep -q "node"; then
+                    PIDS="$PIDS $pid_cwd"
+                  fi
+                done
                 if [ -n "$PIDS" ]; then
                   kill -9 $PIDS || true
                 fi
@@ -218,7 +236,7 @@ jobs:
               exit 1
             fi
 
-            # Cleanup any old timestamped backups from previous pipeline runs
+            # Cleanup old timestamped backups
             ls -td ${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_[0-9]* 2>/dev/null | xargs -r rm -rf
 
             echo "🎉 Deployment to ${{ github.ref_name }} completed successfully!"
