@@ -80,12 +80,12 @@ jobs:
             echo "DEPLOY_PATH=/home/moiaccou/sridhar_jeweller_api" >> $GITHUB_ENV
             echo "BACKUP_PREFIX=prod_backup" >> $GITHUB_ENV
             echo "APP_DOMAIN=sridhar.moiaccount.in" >> $GITHUB_ENV
-            echo "APP_PORT=3000" >> $GITHUB_ENV
+            echo "APP_PORT=5000" >> $GITHUB_ENV
           else
             echo "DEPLOY_PATH=/home/moiaccou/staging_sridhar_jeweller_api" >> $GITHUB_ENV
             echo "BACKUP_PREFIX=stg_backup" >> $GITHUB_ENV
             echo "APP_DOMAIN=staging.sridhar.moiaccount.in" >> $GITHUB_ENV
-            echo "APP_PORT=3001" >> $GITHUB_ENV
+            echo "APP_PORT=5000" >> $GITHUB_ENV
           fi
 
       - name: Backup Current Deployment (Safety Net)
@@ -223,7 +223,7 @@ jobs:
 
             while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
               HTTP_STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" \
-                http://127.0.0.1:${{ env.APP_PORT }}/api 2>/dev/null)
+                http://127.0.0.1:${{ env.APP_PORT }}/ 2>/dev/null)
               STATUS="${HTTP_STATUS:-000}"
 
               if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
