@@ -19,6 +19,11 @@ import jwt from 'jsonwebtoken';
 
 export interface AuthRequest extends Request {
   shopId?: any;
+  actor?: {
+    id: string;
+    name?: string;
+    email?: string;
+  };
 }
 
 export const protect = (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -28,13 +33,19 @@ export const protect = (req: AuthRequest, res: Response, next: NextFunction) => 
       return res.status(401).json({ ok: false, error: 'Access denied. No token provided.' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { shopId: string };
-    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+
     if (!decoded.shopId) {
       return res.status(401).json({ ok: false, error: 'Invalid token payload' });
     }
 
     req.shopId = decoded.shopId;
+    req.actor = {
+      id: decoded.shopId,
+      name: decoded.shopName || decoded.ownerName,
+      email: decoded.email,
+    };
+    
     next();
   } catch (err: any) {
     if (err.name === 'TokenExpiredError') {
