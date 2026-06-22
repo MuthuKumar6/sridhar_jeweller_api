@@ -131,8 +131,14 @@ jobs:
             APP_NAME=$(basename ${{ env.DEPLOY_PATH }})
 
             # Activate Node environment if using cPanel Node.js app
-            if [ -f /home/moiaccou/nodevenv/$APP_NAME/20/bin/activate ]; then
-              source /home/moiaccou/nodevenv/$APP_NAME/20/bin/activate
+            ACTIVATE_SCRIPT="/home/moiaccou/nodevenv/$APP_NAME/20/bin/activate"
+            if [ -f "$ACTIVATE_SCRIPT" ]; then
+              source "$ACTIVATE_SCRIPT"
+              echo "✅ Node environment activated."
+            else
+              echo "⚠️ No nodevenv activate script found at $ACTIVATE_SCRIPT"
+              echo "Available nodevenv entries:"
+              ls /home/moiaccou/nodevenv/ 2>/dev/null || echo "nodevenv directory not found"
             fi
 
             echo "=========================================="
@@ -171,27 +177,51 @@ jobs:
             if [ -n "$PIDS" ]; then
               echo "Found Node processes to kill:$PIDS"
               kill -9 $PIDS || true
+              sleep 3
             else
               echo "No cached Node processes found."
             fi
 
-            echo "⏳ Waiting 20 seconds for application to fully boot..."
-            sleep 20
+            # LAYER 4: Explicitly start the app via cPanel's wrapper if available
+            echo "4️⃣ Attempting explicit app start via cPanel wrapper..."
+            CPANEL_WRAPPER="/home/moiaccou/nodevenv/$APP_NAME/20/bin/node"
+            if [ -f "$CPANEL_WRAPPER" ]; then
+              echo "Starting app with cPanel Node wrapper..."
+              # Start detached so the SSH session doesn't hang
+              nohup "$CPANEL_WRAPPER" ${{ env.DEPLOY_PATH }}/dist/server.js \
+                > ${{ env.DEPLOY_PATH }}/app.log 2>&1 &
+              echo "App started with PID $!"
+            else
+              echo "cPanel wrapper not found — relying on Passenger to pick up restart.txt on next request."
+              echo "Sending a warm-up request to trigger Passenger boot..."
+              curl -s --max-time 30 -o /dev/null \
+                https://${{ env.APP_DOMAIN }}/api || true
+            fi
+
+            echo "⏳ Waiting 25 seconds for application to fully boot..."
+            sleep 25
 
             echo "=========================================="
             echo "🔍 RUNNING LOCALIZED HEALTH CHECK"
             echo "=========================================="
 
-            # Check what port the app is actually listening on
-            echo "🔎 Checking listening ports..."
-            ss -tlnp 2>/dev/null | grep node || netstat -tlnp 2>/dev/null | grep node || echo "Could not determine port"
+            # Show what's actually listening
+            echo "🔎 Listening ports:"
+            ss -tlnp 2>/dev/null | grep -E "node|LISTEN" | head -20 \
+              || netstat -tlnp 2>/dev/null | grep node \
+              || echo "Could not list ports"
 
-            MAX_ATTEMPTS=5
+            # Show recent app log if it exists
+            if [ -f ${{ env.DEPLOY_PATH }}/app.log ]; then
+              echo "📋 Last 20 lines of app.log:"
+              tail -20 ${{ env.DEPLOY_PATH }}/app.log
+            fi
+
+            MAX_ATTEMPTS=6
             ATTEMPT=1
             HEALTH_OK=false
 
             while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-              # Hit the app directly on its local port — avoids SSL termination issues
               HTTP_STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" \
                 http://127.0.0.1:${{ env.APP_PORT }}/api 2>/dev/null)
               STATUS="${HTTP_STATUS:-000}"
@@ -212,6 +242,12 @@ jobs:
             # ==========================================
             if [ "$HEALTH_OK" = false ]; then
               echo "❌ Health check failed after $MAX_ATTEMPTS attempts. Initiating ROLLBACK..."
+
+              # Print final app log before rollback for debugging
+              if [ -f ${{ env.DEPLOY_PATH }}/app.log ]; then
+                echo "📋 app.log at time of failure:"
+                tail -30 ${{ env.DEPLOY_PATH }}/app.log
+              fi
 
               BACKUP_DIR="${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_latest"
 
