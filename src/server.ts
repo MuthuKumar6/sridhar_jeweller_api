@@ -100,7 +100,7 @@ app.get('/api/api-docs.json', (req, res) => {
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({
     ok: true,
-    message: 'Sridhar Jewellers ERP Backend API is Running',
+    message: 'Sridhar Jewellers ERP Backend API is Running successfully!',
     docs: '/api/api-docs'
   });
 });
