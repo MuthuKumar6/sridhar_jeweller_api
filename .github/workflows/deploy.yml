@@ -11,7 +11,7 @@ on:
       - staging
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '20'
 
 jobs:
   # ==========================================
@@ -80,10 +80,12 @@ jobs:
             echo "DEPLOY_PATH=/home/moiaccou/sridhar_jeweller_api" >> $GITHUB_ENV
             echo "BACKUP_PREFIX=prod_backup" >> $GITHUB_ENV
             echo "APP_DOMAIN=sridhar.moiaccount.in" >> $GITHUB_ENV
+            echo "APP_PORT=3000" >> $GITHUB_ENV
           else
             echo "DEPLOY_PATH=/home/moiaccou/staging_sridhar_jeweller_api" >> $GITHUB_ENV
             echo "BACKUP_PREFIX=stg_backup" >> $GITHUB_ENV
             echo "APP_DOMAIN=staging.sridhar.moiaccount.in" >> $GITHUB_ENV
+            echo "APP_PORT=3001" >> $GITHUB_ENV
           fi
 
       - name: Backup Current Deployment (Safety Net)
@@ -146,19 +148,20 @@ jobs:
 
             # LAYER 2: Passenger CLI Restart (Official method)
             echo "2️⃣ Attempting passenger-config restart..."
-            passenger-config restart-app ${{ env.DEPLOY_PATH }} 2>/dev/null || echo "passenger-config not found, relying on Layer 3."
+            passenger-config restart-app ${{ env.DEPLOY_PATH }} 2>/dev/null \
+              || echo "passenger-config not found, relying on Layer 3."
 
             # LAYER 3: Safely kill only Node processes in the app directory
-            # FIX: Filter by exe name (node) AND cwd match, exclude current PID and non-numeric entries
             echo "3️⃣ Killing cached Node processes (Fallback)..."
             CURRENT_PID=$$
             PIDS=""
-            for pid_cwd in $(ls -l /proc/*/cwd 2>/dev/null | grep "${{ env.DEPLOY_PATH }}" | awk '{print $NF}' | grep -oP '/proc/\K[0-9]+'); do
-              # Skip current process
+            for pid_cwd in $(ls -l /proc/*/cwd 2>/dev/null \
+                | grep "${{ env.DEPLOY_PATH }}" \
+                | awk '{print $NF}' \
+                | grep -oP '/proc/\K[0-9]+'); do
               if [ "$pid_cwd" = "$CURRENT_PID" ]; then
                 continue
               fi
-              # Only kill if the exe is actually node
               EXE=$(readlink /proc/$pid_cwd/exe 2>/dev/null || true)
               if echo "$EXE" | grep -q "node"; then
                 PIDS="$PIDS $pid_cwd"
@@ -178,12 +181,20 @@ jobs:
             echo "=========================================="
             echo "🔍 RUNNING LOCALIZED HEALTH CHECK"
             echo "=========================================="
+
+            # Check what port the app is actually listening on
+            echo "🔎 Checking listening ports..."
+            ss -tlnp 2>/dev/null | grep node || netstat -tlnp 2>/dev/null | grep node || echo "Could not determine port"
+
             MAX_ATTEMPTS=5
             ATTEMPT=1
             HEALTH_OK=false
 
             while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-              STATUS=$(curl -s --max-time 10 --resolve ${{ env.APP_DOMAIN }}:443:127.0.0.1 -o /dev/null -w "%{http_code}" https://${{ env.APP_DOMAIN }}/api || echo "000")
+              # Hit the app directly on its local port — avoids SSL termination issues
+              HTTP_STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" \
+                http://127.0.0.1:${{ env.APP_PORT }}/api 2>/dev/null)
+              STATUS="${HTTP_STATUS:-000}"
 
               if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
                 echo "✅ Health check passed! (HTTP $STATUS)"
@@ -213,10 +224,12 @@ jobs:
                 date +%s > tmp/restart.txt
                 touch -m tmp/restart.txt
 
-                # Same safe kill for rollback
                 CURRENT_PID=$$
                 PIDS=""
-                for pid_cwd in $(ls -l /proc/*/cwd 2>/dev/null | grep "${{ env.DEPLOY_PATH }}" | awk '{print $NF}' | grep -oP '/proc/\K[0-9]+'); do
+                for pid_cwd in $(ls -l /proc/*/cwd 2>/dev/null \
+                    | grep "${{ env.DEPLOY_PATH }}" \
+                    | awk '{print $NF}' \
+                    | grep -oP '/proc/\K[0-9]+'); do
                   if [ "$pid_cwd" = "$CURRENT_PID" ]; then
                     continue
                   fi
@@ -237,6 +250,7 @@ jobs:
             fi
 
             # Cleanup old timestamped backups
-            ls -td ${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_[0-9]* 2>/dev/null | xargs -r rm -rf
+            ls -td ${{ env.DEPLOY_PATH }}_${{ env.BACKUP_PREFIX }}_[0-9]* 2>/dev/null \
+              | xargs -r rm -rf
 
             echo "🎉 Deployment to ${{ github.ref_name }} completed successfully!"
