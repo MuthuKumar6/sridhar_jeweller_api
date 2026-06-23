@@ -1,7 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
@@ -55,25 +54,6 @@ app.use(helmet());
 
 // Body Parser
 app.use(express.json({ limit: '1mb' }));
-
-// ==================== RATE LIMITING ====================
-
-// const generalLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000,   // 15 minutes
-//   max: 100,
-//   message: { ok: false, error: 'Too many requests, please try again later.' },
-//   standardHeaders: true,
-//   legacyHeaders: false,
-// });
-
-// const authLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000,
-//   max: 10,
-//   message: { ok: false, error: 'Too many  login attempts. Please try again later.' },
-// });
-
-// app.use(generalLimiter);                    // Apply to all routes
-// app.use('/api/auth', authLimiter);          // Stricter for auth
 
 // ==================== ROUTES ====================
 
